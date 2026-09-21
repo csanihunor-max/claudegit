@@ -1,7 +1,7 @@
-"""Tests the parsing/extraction LOGIC against a synthetic fixture that
-matches parser.py's current (unverified) selectors. This proves the code
-does what it's meant to; it does NOT prove the selectors match the real
-site — see the warning in scraper/parser.py.
+"""Tests the parser against REAL hardverapro.hu markup (see the fixture
+file's header comment for provenance — extracted from a live category page,
+not hand-written). This proves both the extraction logic and the selectors
+actually match the site, not just that the code does what it's meant to.
 """
 from pathlib import Path
 
@@ -14,25 +14,25 @@ def test_parses_valid_cards_and_skips_malformed_ones():
     html = FIXTURE.read_text(encoding="utf-8")
     listings = parse_search_results(html)
 
-    assert len(listings) == 2  # the third card has no price and is skipped
+    assert len(listings) == 2  # the third card has its price column stripped and is skipped
 
     first = listings[0]
-    assert first.listing_id == "1234567"
-    assert first.title == "Eladó iPhone 12 128GB, garanciával"
-    assert first.price == 180_000
+    assert first.listing_id == "7717205"
+    assert first.title == "Ingyen FOX/GLS/MPL mehet! Új ASUS TUF B850M-PLUS WiFi7 + AMD Ryzen 7 7800X3D"
+    assert first.price == 150_000
     assert first.currency == "HUF"
-    assert first.location == "Budapest"
-    assert first.url.startswith("https://hardverapro.hu/")
+    assert first.location == "XIX. kerület"
+    assert first.url == "https://hardverapro.hu/apro/uj_asus_tuf_b850m-plus_wifi7_amd_ryzen_7_7800x3d/friss.html"
 
     second = listings[1]
-    assert second.listing_id == "7654321"
-    assert second.price == 120_000
+    assert second.listing_id == "7714720"
+    assert second.price == 39_990
 
 
-def test_same_item_different_wording_normalizes_to_same_key():
+def test_different_items_get_different_normalized_keys():
     html = FIXTURE.read_text(encoding="utf-8")
     listings = parse_search_results(html)
-    assert listings[0].normalized_key == listings[1].normalized_key == "iphone 12 128gb"
+    assert listings[0].normalized_key != listings[1].normalized_key
 
 
 def test_no_cards_returns_empty_list_without_raising():

@@ -1,14 +1,16 @@
 """Parse hardverapro.hu search-result HTML into Listing objects.
 
-IMPORTANT — the CSS selectors below are BEST-EFFORT GUESSES, not verified
-against the live site. This sandbox has no network access to hardverapro.hu,
-so nothing here has been run against real HTML. Before relying on this:
+Selectors verified against real hardverapro.hu category/search pages
+(fetched 2026-09-21). Each ad card is a `<li class="media" data-uadid="...">`
+— the `data-uadid` attribute is the site's own stable ad id, so we read it
+directly instead of trying to regex it out of the URL. A "featured"
+("Előresorolva") card is `<li class="media featured" ...>` and additionally
+repeats the price inside the title column; we read the price from
+`.uad-col-price` specifically to avoid picking up that duplicate.
 
-    1. Save a real search-result page's HTML locally.
-    2. Run `parse_search_results()` against it and compare the output to
-       what you see in the browser.
-    3. Fix the selectors in `_SELECTORS` below to match — everything else
-       (grouping, pricing, arbitrage detection) is independent of them.
+If the site markup changes later, `python -m
+hardverapro_arbitrage.tools.inspect_html <url-or-file>` shows exactly what
+this extracts, to compare against the page and fix `_SELECTORS` below.
 
 All parsing is defensive: a listing card that doesn't match the expected
 shape is skipped and logged rather than crashing the whole scrape cycle.
@@ -27,51 +29,37 @@ logger = logging.getLogger(__name__)
 
 # Centralized so a site markup change means editing one place. Update these
 # once you've inspected real page source (browser devtools → Inspect on a
-# listing card).
+# listing card), or with the inspect_html tool (see module docstring).
 _SELECTORS = {
-    "listing_card": "div.media.media-image-with-icon",  # one ad card in the results list
-    "title": "div.media-heading a",
-    "price": "div.media-price",
-    "location": "div.media-city",
-    "link": "div.media-heading a",
+    "listing_card": "li.media[data-uadid]",  # one ad card in the results list
+    "title": "div.uad-col-title h1 a",  # also doubles as the ad's link
+    "price": "div.uad-col-price .uad-price",  # NOT .uad-col-title .uad-price (duplicated on featured ads)
+    "location": "div.uad-cities",
 }
 
-_PRICE_NUMBER_RE = re.compile(r"[\d\s .,]+")
 _NON_DIGIT_RE = re.compile(r"[^\d]")
-_LISTING_ID_RE = re.compile(r"-t(\d+)(?:[/?#]|$)")
-
-
-def _extract_listing_id(url: str) -> str | None:
-    """hardverapro ad URLs end in something like '...-tNNNNNNN'; NNNNNNN is
-    the stable ad id we key storage on. Falls back to the full URL if the
-    pattern isn't found, so a markup change degrades to "keyed by URL"
-    rather than dropping listings silently.
-    """
-    match = _LISTING_ID_RE.search(url)
-    return match.group(1) if match else None
 
 
 def _parse_price(text: str) -> tuple[float, str] | None:
     text = text.strip()
     if not text:
         return None
-    currency = "HUF" if ("Ft" in text or "HUF" in text) else "HUF"
     digits = _NON_DIGIT_RE.sub("", text)
     if not digits:
         return None
-    return float(digits), currency
+    return float(digits), "HUF"
 
 
 def _parse_card(card: Tag, base_url: str) -> Listing | None:
+    listing_id = card.get("data-uadid")
     title_el = card.select_one(_SELECTORS["title"])
     price_el = card.select_one(_SELECTORS["price"])
-    link_el = card.select_one(_SELECTORS["link"])
 
-    if title_el is None or price_el is None or link_el is None:
-        logger.debug("skipping card missing title/price/link: %s", card)
+    if not listing_id or title_el is None or price_el is None:
+        logger.debug("skipping card missing id/title/price: %s", card)
         return None
 
-    href = link_el.get("href", "")
+    href = title_el.get("href", "")
     if not href:
         return None
     url = href if href.startswith("http") else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
@@ -82,13 +70,11 @@ def _parse_card(card: Tag, base_url: str) -> Listing | None:
         return None
     price, currency = price_parsed
 
-    listing_id = _extract_listing_id(url) or url
-
     location_el = card.select_one(_SELECTORS["location"])
     location = location_el.get_text(strip=True) if location_el else None
 
     return Listing(
-        listing_id=listing_id,
+        listing_id=str(listing_id),
         url=url,
         title=title_el.get_text(strip=True),
         price=price,

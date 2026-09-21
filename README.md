@@ -7,7 +7,12 @@ item's own recent second-hand market price.
 ## Quickstart
 
 1. `pip install -r requirements.txt`
-2. `cp .env.example .env` and set `HA_SEARCH_URLS` to your saved search(es)
+2. `cp .env.example .env` — works as-is, pre-filled with this bot's own
+   curated list of 20 hardverapro.hu categories
+   (`hardverapro_arbitrage/categories.py`'s `DEFAULT_SEARCH_URLS` — the
+   two aren't linked automatically, so if you add/remove a category
+   there, copy the change into `.env.example` too). Edit `HA_SEARCH_URLS`
+   in `.env` to track a specific saved search or a narrower set instead.
 3. `python -m hardverapro_arbitrage --all`
 4. Open `http://<that machine>:8765/` — deals appear as the hourly loop finds them
 
@@ -153,10 +158,13 @@ same price won't spam you again, but a further price drop will.
 
 ## Remote dashboard
 
-The dashboard (`/`) lists currently-flagged deals, biggest discount first.
-There's also `/api/deals` (JSON, same ranking and fields) and `/healthz`.
-It's read-only except for one thing — see below — and has no login of its
-own.
+The dashboard (`/`) lists currently-flagged deals, biggest discount first
+by default. Click a column header to sort by it instead (discount, price,
+category, savings or detected date), click again to flip direction; the
+category dropdown filters to one category at a time. `/api/deals` takes
+the same `?sort=`, `?dir=` and `?category=` query params and returns JSON
+in the same order. There's also `/healthz`. It's read-only except for one
+thing — see below — and has no login of its own.
 
 A deal only keeps showing while its listing is still being freshly
 re-observed — seen again, un-iced, within the last two poll cycles

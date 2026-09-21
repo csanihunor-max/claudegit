@@ -32,6 +32,11 @@ def _env_int(name: str, default: int) -> int:
 @dataclass
 class Config:
     # One or more hardverapro.hu search-result URLs to poll each cycle.
+    # No silent fallback to a real URL list here on purpose -- unset means
+    # unset, and validate() below refuses to run rather than kick off
+    # unbounded live network activity nobody explicitly asked for. See
+    # categories.py's DEFAULT_SEARCH_URLS for this bot's curated category
+    # list, and .env.example for it pre-filled as a real starting value.
     search_urls: list[str] = field(default_factory=lambda: _env_list("HA_SEARCH_URLS"))
 
     # How often to run a full scrape cycle.

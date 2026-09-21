@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from flask import Flask, jsonify, redirect, render_template_string, url_for
+from flask import Flask, jsonify, redirect, render_template_string, request, url_for
 
 from .config import Config
 from .notify.base import Notifier
@@ -67,20 +67,33 @@ _TEMPLATE = """
   <p class="meta">
     <b>Discount</b> — % below other resale listings of the same item on hardverapro.hu
     itself. Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min, or
-    click Refresh for an immediate rescan (takes up to a minute).
+    click Refresh for an immediate rescan (takes up to a minute). Click a column header
+    to sort by it (click again to flip direction).
   </p>
+  <form method="get" class="toolbar" style="margin-bottom: 0.75rem;">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <label class="meta" for="category-filter">Category:
+      <select name="category" id="category-filter" onchange="this.form.submit()">
+        <option value="" {{ "selected" if not category else "" }}>All ({{ all_deals_count }})</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {{ "selected" if c == category else "" }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
   {% if deals %}
   <table>
     <thead>
       <tr>
-        <th>Discount</th>
+        <th><a href="{{ sort_links.discount }}">Discount{{ sort_arrows.discount }}</a></th>
         <th>Item</th>
-        <th>Category</th>
-        <th>Price</th>
+        <th><a href="{{ sort_links.category }}">Category{{ sort_arrows.category }}</a></th>
+        <th><a href="{{ sort_links.price }}">Price{{ sort_arrows.price }}</a></th>
         <th>Reference</th>
-        <th>Savings</th>
+        <th><a href="{{ sort_links.savings }}">Savings{{ sort_arrows.savings }}</a></th>
         <th>Location</th>
-        <th>Detected</th>
+        <th><a href="{{ sort_links.detected }}">Detected{{ sort_arrows.detected }}</a></th>
       </tr>
     </thead>
     <tbody>
@@ -104,6 +117,31 @@ _TEMPLATE = """
 </body>
 </html>
 """
+
+
+# Each column's key function and its default direction when first sorted
+# by (a column always defaults to whichever direction is more useful --
+# biggest discount/savings/newest first, cheapest price and A-Z category
+# first). Clicking an already-active column flips it instead.
+_SORT_KEYS: dict[str, tuple] = {
+    "discount": (lambda d: d["discount_fraction"], "desc"),
+    "price": (lambda d: d["price"], "asc"),
+    "category": (lambda d: (d["source_label"] or "").lower(), "asc"),
+    "savings": (lambda d: d["savings"], "desc"),
+    "detected": (lambda d: d["detected_at"], "desc"),
+}
+_DEFAULT_SORT = "discount"
+
+
+def _sort_deals(deals: list[dict], sort: str, direction: str) -> list[dict]:
+    key_fn, _ = _SORT_KEYS.get(sort, _SORT_KEYS[_DEFAULT_SORT])
+    return sorted(deals, key=key_fn, reverse=(direction == "desc"))
+
+
+def _resolve_sort(sort: str | None, direction: str | None) -> tuple[str, str]:
+    sort = sort if sort in _SORT_KEYS else _DEFAULT_SORT
+    direction = direction if direction in ("asc", "desc") else _SORT_KEYS[sort][1]
+    return sort, direction
 
 
 def _deal_to_dict(row: sqlite3.Row) -> dict:
@@ -151,12 +189,38 @@ def create_app(config: Config) -> Flask:
             )
         finally:
             conn.close()
+        all_deals = [_deal_to_dict(r) for r in rows]
+        categories = sorted({d["source_label"] for d in all_deals if d["source_label"]})
+
+        sort, direction = _resolve_sort(request.args.get("sort"), request.args.get("dir"))
+        category = request.args.get("category") or None
+        deals = [d for d in all_deals if not category or d["source_label"] == category]
+        deals = _sort_deals(deals, sort, direction)
+
+        def _toggle_dir(col: str) -> str:
+            if sort == col:
+                return "asc" if direction == "desc" else "desc"
+            return _SORT_KEYS[col][1]
+
+        sort_links = {
+            col: url_for("dashboard", sort=col, dir=_toggle_dir(col), category=category)
+            for col in _SORT_KEYS
+        }
+        sort_arrows = {col: (" ▲" if direction == "asc" else " ▼") if sort == col else "" for col in _SORT_KEYS}
+
         return render_template_string(
             _TEMPLATE,
-            deals=[_deal_to_dict(r) for r in rows],
+            deals=deals,
             window_days=config.deals_list_window_days,
             limit=config.deals_list_limit,
             refresh_error=refresh_error,
+            sort=sort,
+            dir=direction,
+            category=category or "",
+            categories=categories,
+            all_deals_count=len(all_deals),
+            sort_links=sort_links,
+            sort_arrows=sort_arrows,
         )
 
     @app.post("/refresh")
@@ -190,7 +254,15 @@ def create_app(config: Config) -> Flask:
             )
         finally:
             conn.close()
-        return jsonify([_deal_to_dict(r) for r in rows])
+        deals = [_deal_to_dict(r) for r in rows]
+
+        category = request.args.get("category") or None
+        if category:
+            deals = [d for d in deals if d["source_label"] == category]
+        sort, direction = _resolve_sort(request.args.get("sort"), request.args.get("dir"))
+        deals = _sort_deals(deals, sort, direction)
+
+        return jsonify(deals)
 
     @app.get("/healthz")
     def healthz():

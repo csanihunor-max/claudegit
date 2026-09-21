@@ -1,4 +1,4 @@
-from hardverapro_arbitrage.categories import label_for_url
+from hardverapro_arbitrage.categories import _LABELS, DEFAULT_SEARCH_URLS, label_for_url
 
 
 def test_known_category_labeled():
@@ -26,3 +26,24 @@ def test_pc_parts_categories_labeled():
     assert label_for_url("https://hardverapro.hu/aprok/hardver/alaplap/index.html") == "Motherboards"
     assert label_for_url("https://hardverapro.hu/aprok/hardver/videokartya/index.html") == "Graphics Cards"
     assert label_for_url("https://hardverapro.hu/aprok/hardver/processzor/index.html") == "CPUs"
+
+
+def test_newer_categories_labeled():
+    assert label_for_url("https://hardverapro.hu/aprok/hardver/monitor/index.html") == "Monitors"
+    assert label_for_url("https://hardverapro.hu/aprok/notebook/pc/index.html") == "Laptops"
+    assert label_for_url("https://hardverapro.hu/aprok/notebook/apple/index.html") == "MacBooks"
+    assert label_for_url("https://hardverapro.hu/aprok/hazimozi_hifi/tv_projektor/index.html") == "TVs / Projectors"
+    assert (
+        label_for_url("https://hardverapro.hu/aprok/hazimozi_hifi/fejhallgato_fulhallgato/index.html")
+        == "Headphones"
+    )
+    assert label_for_url("https://hardverapro.hu/aprok/mobil/okosora_okosgyuru/index.html") == "Smartwatches"
+
+
+def test_every_default_url_has_a_specific_label_not_a_fallback():
+    # every URL this bot tracks by default should match one of the known
+    # slugs, never fall through to the generic last-path-segment label --
+    # otherwise the dashboard/notifications show a raw slug instead of a
+    # readable name.
+    for url in DEFAULT_SEARCH_URLS:
+        assert any(slug in url for slug in _LABELS), f"{url} has no specific label"

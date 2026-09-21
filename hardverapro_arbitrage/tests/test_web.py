@@ -28,9 +28,10 @@ def _deal(listing_id: str, price: float, reference: float) -> Deal:
     )
 
 
-def _make_client(tmp_path, deals):
+def _make_client(tmp_path, deals, labels: dict | None = None):
     config = Config(search_urls=["https://example.com"], db_path=str(tmp_path / "test.sqlite3"))
     conn = db.connect(config.db_path)
+    labels = labels or {}
     for deal in deals:
         # Mirrors real pipeline usage (pipeline.py always records an
         # observation for a listing before evaluating/recording it as a
@@ -38,7 +39,7 @@ def _make_client(tmp_path, deals):
         # get_recent_deals' max_listing_age_seconds), so a deal with none
         # would wrongly look like a stale/jegelve listing under test.
         db.record_observation(conn, deal.listing)
-        db.record_deal(conn, deal)
+        db.record_deal(conn, deal, source_label=labels.get(deal.listing.listing_id))
     conn.close()
     return create_app(config).test_client()
 
@@ -86,6 +87,88 @@ def test_dashboard_shows_discount(tmp_path):
     client = _make_client(tmp_path, [_deal("1", price=80_000, reference=100_000)])
     body = client.get("/").get_data(as_text=True)
     assert "20%" in body
+
+
+def test_sort_by_price_ascending_by_default(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000),
+            _deal("2", price=30_000, reference=100_000),
+        ],
+    )
+    body = client.get("/?sort=price").get_data(as_text=True)
+    # cheapest first is the sensible default for price, unlike discount
+    assert body.index("Item 2") < body.index("Item 1")
+
+
+def test_sort_direction_can_be_flipped(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000),
+            _deal("2", price=30_000, reference=100_000),
+        ],
+    )
+    body = client.get("/?sort=price&dir=desc").get_data(as_text=True)
+    assert body.index("Item 1") < body.index("Item 2")
+
+
+def test_sort_by_category(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000),
+            _deal("2", price=80_000, reference=100_000),
+        ],
+        labels={"1": "Zebra Category", "2": "Alpha Category"},
+    )
+    body = client.get("/?sort=category").get_data(as_text=True)
+    assert body.index("Item 2") < body.index("Item 1")  # Alpha before Zebra
+
+
+def test_filter_by_category(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000),
+            _deal("2", price=80_000, reference=100_000),
+        ],
+        labels={"1": "Phones", "2": "Laptops"},
+    )
+    response = client.get("/?category=Phones")
+    body = response.get_data(as_text=True)
+    assert "Item 1" in body
+    assert "Item 2" not in body
+
+
+def test_api_deals_respects_sort_and_category_params(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000),  # 20% off
+            _deal("2", price=30_000, reference=100_000),  # 70% off
+        ],
+        labels={"1": "Phones", "2": "Phones"},
+    )
+    response = client.get("/api/deals?sort=price&dir=asc")
+    payload = response.get_json()
+    assert [d["listing_id"] for d in payload] == ["2", "1"]
+
+    response = client.get("/api/deals?category=Nonexistent")
+    assert response.get_json() == []
+
+
+def test_invalid_sort_param_falls_back_to_default(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000),  # 20% off
+            _deal("2", price=50_000, reference=100_000),  # 50% off
+        ],
+    )
+    body = client.get("/?sort=not-a-real-column").get_data(as_text=True)
+    assert body.index("Item 2") < body.index("Item 1")  # still discount desc
 
 
 def test_refresh_runs_pipeline_and_redirects(tmp_path, monkeypatch):

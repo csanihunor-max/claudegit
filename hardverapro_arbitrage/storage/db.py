@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS deals (
     market_reference_price REAL NOT NULL,
     discount_fraction REAL NOT NULL,
     sample_size INTEGER NOT NULL,
-    detected_at TEXT NOT NULL
+    detected_at TEXT NOT NULL,
+    source_label TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_deals_listing ON deals (listing_id, detected_at);
 CREATE INDEX IF NOT EXISTS idx_deals_detected_at ON deals (detected_at);
@@ -113,15 +114,15 @@ def get_recent_prices(
         return [row[0] for row in cur.fetchall()]
 
 
-def record_deal(conn: sqlite3.Connection, deal: Deal) -> None:
+def record_deal(conn: sqlite3.Connection, deal: Deal, *, source_label: str | None = None) -> None:
     listing = deal.listing
     with closing(conn.cursor()) as cur:
         cur.execute(
             """
             INSERT INTO deals
                 (listing_id, title, url, price, currency, location,
-                 market_reference_price, discount_fraction, sample_size, detected_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 market_reference_price, discount_fraction, sample_size, detected_at, source_label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 listing.listing_id,
@@ -134,6 +135,7 @@ def record_deal(conn: sqlite3.Connection, deal: Deal) -> None:
                 deal.discount_fraction,
                 deal.sample_size,
                 listing.seen_at.isoformat(),
+                source_label,
             ),
         )
     conn.commit()

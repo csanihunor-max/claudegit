@@ -54,6 +54,7 @@ _TEMPLATE = """
       <tr>
         <th>Discount</th>
         <th>Item</th>
+        <th>Category</th>
         <th>Price</th>
         <th>Market ref.</th>
         <th>Savings</th>
@@ -66,6 +67,7 @@ _TEMPLATE = """
       <tr>
         <td class="discount">{{ "%.0f"|format(d.discount_fraction * 100) }}%</td>
         <td><a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a></td>
+        <td>{{ d.source_label or "" }}</td>
         <td class="price">{{ "{:,.0f}".format(d.price) }} {{ d.currency }}</td>
         <td class="price">{{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }}</td>
         <td class="price">{{ "{:,.0f}".format(d.market_reference_price - d.price) }} {{ d.currency }}</td>
@@ -95,6 +97,7 @@ def _deal_to_dict(row: sqlite3.Row) -> dict:
         "discount_fraction": row["discount_fraction"],
         "sample_size": row["sample_size"],
         "detected_at": row["detected_at"],
+        "source_label": row["source_label"],
     }
 
 

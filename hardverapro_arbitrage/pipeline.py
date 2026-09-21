@@ -5,6 +5,7 @@ import logging
 import sqlite3
 
 from .arbitrage.detector import evaluate
+from .categories import label_for_url
 from .config import Config
 from .models import Deal
 from .notify.base import Notifier
@@ -30,6 +31,7 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
             logger.exception("failed to fetch %s, skipping this cycle", url)
             continue
 
+        source_label = label_for_url(url)
         listings = parse_search_results(html)
         logger.info("%s: %d listings parsed", url, len(listings))
 
@@ -46,7 +48,7 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
             if deal is None:
                 continue
 
-            db.record_deal(conn, deal)  # feeds the dashboard, independent of notification dedup
+            db.record_deal(conn, deal, source_label=source_label)  # feeds the dashboard, independent of notification dedup
 
             if db.has_been_notified(conn, listing.listing_id, listing.price):
                 continue

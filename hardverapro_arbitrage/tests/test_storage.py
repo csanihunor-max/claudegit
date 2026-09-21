@@ -90,3 +90,13 @@ def test_recent_deals_respects_limit():
 
     rows = db.get_recent_deals(conn, window_days=90, limit=2)
     assert len(rows) == 2
+
+
+def test_source_label_stored_and_defaults_to_none():
+    conn = db.connect(":memory:")
+    db.record_deal(conn, _deal("1", price=80_000, reference=100_000), source_label="Steam Deck")
+    db.record_deal(conn, _deal("2", price=80_000, reference=100_000))  # no label passed
+
+    rows = {r["listing_id"]: r for r in db.get_recent_deals(conn, window_days=90, limit=10)}
+    assert rows["1"]["source_label"] == "Steam Deck"
+    assert rows["2"]["source_label"] is None

@@ -47,6 +47,16 @@ class Config:
     # discarded most of them rather than reflecting genuine caution.
     min_samples_for_reference: int = field(default_factory=lambda: _env_int("HA_MIN_SAMPLES", 2))
 
+    # A group of "comparable" listings whose prices disagree with each
+    # other by more than this ratio (max/min) isn't trusted as a market
+    # reference at all — checked against real data: a generic title like
+    # "PS4 játékok" ("PS4 games") groups differently-sized game bundles
+    # under one identical-looking key, with a 3.6-4x spread; a genuinely
+    # comparable product (a specific console/headset model, independently
+    # priced by different sellers) sits under 1.5x. 3.0 is a deliberately
+    # conservative line between them.
+    max_group_spread_ratio: float = field(default_factory=lambda: _env_float("HA_MAX_GROUP_SPREAD_RATIO", 3.0))
+
     # A listing is flagged as a deal when its price is at least this far
     # below the item's rolling market reference price.
     deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.20))

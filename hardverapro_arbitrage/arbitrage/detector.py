@@ -34,7 +34,9 @@ def evaluate(
     if config.max_price and listing.price > config.max_price:
         return None
 
-    used_reference = market_reference_price(recent_prices, config.min_samples_for_reference)
+    used_reference = market_reference_price(
+        recent_prices, config.min_samples_for_reference, max_spread_ratio=config.max_group_spread_ratio
+    )
     used_discount = None
     if used_reference is not None and used_reference > 0:
         used_discount = (used_reference - listing.price) / used_reference

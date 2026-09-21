@@ -85,6 +85,17 @@ came back with zero duplicate groups reaching even 2 other listings, in
 costs nothing) but don't expect used-median deals from them; retail
 comparison below is what will actually make these categories useful.
 
+The opposite failure mode also happens — a title too *generic* rather
+than too specific — and it produced a real false positive: "PS4
+játékok" ("PS4 games") normalizes identically across listings that are
+actually bundles of wildly different game counts, 3.6-4x apart in
+price, not one product independently priced by different sellers (a
+genuine case, like the ROG Ally X deal above, sits under 1.5x). A group
+whose prices disagree by more than `HA_MAX_GROUP_SPREAD_RATIO` (default
+3.0, max/min) isn't trusted as a market reference at all, even with
+enough samples — checked against exactly this real case and the
+genuine ones, not picked arbitrarily.
+
 **Secondary, fallback only: retail.** When used-median doesn't qualify a
 listing — either not enough comparable listings exist yet, or the
 discount fell short of its own threshold — the bot checks it against the

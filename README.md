@@ -4,21 +4,46 @@ Polls one or more hardverapro.hu search-result pages every hour, tracks
 prices per item over time, and flags listings priced well below that
 item's own recent second-hand market price.
 
-## ⚠️ Selectors are unverified
+## Checklist for when you're back on a machine with real network access
+
+Everything is built and tested except the one thing that couldn't be
+verified offline. In order:
+
+1. `pip install -r requirements.txt`
+2. `cp .env.example .env` and set `HA_SEARCH_URLS` to your saved search(es)
+3. **Fix the selectors** — the one required step, see below
+4. `python -m hardverapro_arbitrage --all`
+5. Open `http://<that machine>:8765/` — deals appear as the hourly loop finds them
+
+## ⚠️ One step required before this works: fix the selectors
 
 This was built in an environment with **no network access to
 hardverapro.hu**, so the HTML parsing selectors in
 `hardverapro_arbitrage/scraper/parser.py` (`_SELECTORS`) are best-effort
-guesses, not something run against the real site. Before trusting any of
-this:
+guesses, never run against the real site. This is the only remaining
+blocker — everything else (normalization, pricing, arbitrage detection,
+storage, notification, the dashboard) is independent of site markup and
+already tested. Once you're on a machine that can reach hardverapro.hu:
 
-1. Save a real search-results page's HTML (browser → View Source, or
-   `curl` it locally).
-2. Run it through `parse_search_results()` (see `tests/test_parser.py` for
-   the pattern) and compare the output to what the page actually shows.
-3. Fix `_SELECTORS` in `parser.py` to match. Everything downstream
-   (normalization, pricing, arbitrage detection, storage, notification) is
-   independent of the site markup and is already tested.
+```bash
+# straight from a live search-results URL...
+python -m hardverapro_arbitrage.tools.inspect_html "https://hardverapro.hu/index.php?st=..."
+
+# ...or a page you saved locally (browser -> Save Page As)
+python -m hardverapro_arbitrage.tools.inspect_html path/to/saved_page.html
+```
+
+It prints exactly what the parser extracted. Compare that to the page in
+your browser:
+
+- **0 listings, with a "0 listing cards matched" warning** → the
+  `listing_card` selector doesn't match; inspect one ad card in devtools
+  and update `_SELECTORS` in `parser.py`.
+- **Listings printed, but title/price/url/location look wrong** → same
+  fix, just the more specific selector in that dict.
+
+Re-run the tool until its output matches the real page, then it's done —
+nothing else in the project needs touching for this.
 
 ## How "market price" is computed
 
@@ -53,12 +78,25 @@ cp .env.example .env
 ## Running
 
 ```bash
-# one scrape cycle, then exit (good for testing/cron)
+# scrape loop + web dashboard together, one process (recommended)
+python -m hardverapro_arbitrage --all
+
+# just one scrape cycle, then exit (good for testing/cron)
 python -m hardverapro_arbitrage --once
 
-# run forever, once per HA_POLL_INTERVAL_SECONDS (default: hourly)
+# just the scrape loop, no dashboard
 python -m hardverapro_arbitrage
+
+# just the dashboard, reading whatever's already in the DB
+python -m hardverapro_arbitrage --serve
 ```
+
+`--all` is the normal way to run this: it starts the hourly scrape loop in
+a background thread and the dashboard's dev server in the foreground, so
+one command gives you both a running bot and something to check from your
+phone. Keep that one process alive under whatever you'd normally use —
+`screen`/`tmux`, a systemd/Task Scheduler service, `pm2`, a Docker
+container — there's nothing here that daemonizes itself.
 
 Deals are always logged to the console. Set `HA_TELEGRAM_BOT_TOKEN` and
 `HA_TELEGRAM_CHAT_ID` in `.env` to also get a Telegram message per deal
@@ -67,14 +105,6 @@ Deals are always logged to the console. Set `HA_TELEGRAM_BOT_TOKEN` and
 same price won't spam you again, but a further price drop will.
 
 ## Remote dashboard
-
-Run the scraper and the dashboard as two separate long-running processes
-sharing the same SQLite file:
-
-```bash
-python -m hardverapro_arbitrage           # scrape loop, hourly
-python -m hardverapro_arbitrage --serve   # web dashboard, separate process
-```
 
 The dashboard (`/`) lists currently-flagged deals **ranked biggest relative
 bargain first** — % below the item's own market reference price, ties

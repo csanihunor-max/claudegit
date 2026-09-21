@@ -1,9 +1,10 @@
-"""Entry point: `python -m hardverapro_arbitrage [--once | --serve]`."""
+"""Entry point: `python -m hardverapro_arbitrage [--once | --serve | --all]`."""
 from __future__ import annotations
 
 import argparse
 import logging
 import sys
+import threading
 
 from .config import Config
 from .notify.base import Notifier
@@ -22,6 +23,23 @@ def _build_notifiers(config: Config) -> list[Notifier]:
     return notifiers
 
 
+def _run_all(config: Config, notifiers: list[Notifier]) -> None:
+    """Run the scrape loop and the web dashboard together in a single
+    process/command — the scrape loop in a background thread, the
+    dashboard's dev server blocking in the main thread. Simplest way to
+    run this as one persistent "server": one process to start, one to
+    keep alive under whatever supervises it (a terminal, a service
+    manager, Task Scheduler, etc).
+    """
+    from .web import run as run_web
+
+    loop_thread = threading.Thread(
+        target=run_forever, args=(config, notifiers), name="scrape-loop", daemon=True
+    )
+    loop_thread.start()
+    run_web(config)  # blocks until interrupted
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Hardverapro arbitrage scraper")
     mode = parser.add_mutually_exclusive_group()
@@ -29,7 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument(
         "--serve",
         action="store_true",
-        help="run the read-only web dashboard instead of scraping (see README for exposing it remotely)",
+        help="run only the read-only web dashboard (see README for exposing it remotely)",
+    )
+    mode.add_argument(
+        "--all",
+        action="store_true",
+        help="run the scrape loop and the web dashboard together in one process (recommended for normal use)",
     )
     parser.add_argument("--verbose", action="store_true", help="enable debug logging")
     args = parser.parse_args(argv)
@@ -64,6 +87,10 @@ def main(argv: list[str] | None = None) -> int:
                 run_once(config, conn, client, notifiers)
         finally:
             conn.close()
+        return 0
+
+    if args.all:
+        _run_all(config, notifiers)
         return 0
 
     run_forever(config, notifiers)

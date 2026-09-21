@@ -18,6 +18,7 @@ def _deal(listing_id: str, price: float, reference: float) -> Deal:
     )
     return Deal(
         listing=listing,
+        basis="used_median",
         market_reference_price=reference,
         discount_fraction=(reference - price) / reference,
         sample_size=3,

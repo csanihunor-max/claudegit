@@ -41,13 +41,19 @@ _TEMPLATE = """
     a { color: #6cf; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .discount { font-weight: 700; color: #4d9; }
+    .basis { font-weight: 400; font-size: 0.7rem; color: #888; text-transform: none; }
     .price { white-space: nowrap; }
     .empty { color: #888; padding: 2rem 0; text-align: center; }
   </style>
 </head>
 <body>
   <h1>Best Hardverapro deals right now</h1>
-  <p class="meta">Ranked by % below each item's recent market price. Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min.</p>
+  <p class="meta">
+    "vs used" = % below other resale listings of the same item (primary signal).
+    "vs new" = % below current retail price, only shown when there wasn't
+    enough used-listing history to compare against.
+    Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min.
+  </p>
   {% if deals %}
   <table>
     <thead>
@@ -56,7 +62,7 @@ _TEMPLATE = """
         <th>Item</th>
         <th>Category</th>
         <th>Price</th>
-        <th>Market ref.</th>
+        <th>Reference</th>
         <th>Savings</th>
         <th>Location</th>
         <th>Detected</th>
@@ -65,12 +71,12 @@ _TEMPLATE = """
     <tbody>
       {% for d in deals %}
       <tr>
-        <td class="discount">{{ "%.0f"|format(d.discount_fraction * 100) }}%</td>
+        <td class="discount">{{ "%.0f"|format(d.effective_discount_fraction * 100) }}% <span class="basis">{{ "vs used" if d.basis == "used_median" else "vs new" }}</span></td>
         <td><a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a></td>
         <td>{{ d.source_label or "" }}</td>
         <td class="price">{{ "{:,.0f}".format(d.price) }} {{ d.currency }}</td>
-        <td class="price">{{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }}</td>
-        <td class="price">{{ "{:,.0f}".format(d.market_reference_price - d.price) }} {{ d.currency }}</td>
+        <td class="price">{{ "{:,.0f}".format(d.effective_reference_price) }} {{ d.currency }}</td>
+        <td class="price">{{ "{:,.0f}".format(d.effective_savings) }} {{ d.currency }}</td>
         <td>{{ d.location or "" }}</td>
         <td>{{ d.detected_at.split("T")[0] }}</td>
       </tr>
@@ -86,6 +92,15 @@ _TEMPLATE = """
 
 
 def _deal_to_dict(row: sqlite3.Row) -> dict:
+    basis = row["basis"]
+    if basis == "used_median":
+        effective_discount = row["discount_fraction"]
+        effective_reference = row["market_reference_price"]
+    else:
+        effective_discount = row["retail_discount_fraction"]
+        effective_reference = row["retail_reference_price"]
+    effective_savings = None if effective_reference is None else effective_reference - row["price"]
+
     return {
         "listing_id": row["listing_id"],
         "title": row["title"],
@@ -93,9 +108,17 @@ def _deal_to_dict(row: sqlite3.Row) -> dict:
         "price": row["price"],
         "currency": row["currency"],
         "location": row["location"],
+        "basis": basis,
         "market_reference_price": row["market_reference_price"],
         "discount_fraction": row["discount_fraction"],
         "sample_size": row["sample_size"],
+        "retail_reference_price": row["retail_reference_price"],
+        "retail_discount_fraction": row["retail_discount_fraction"],
+        "retail_match_confidence": row["retail_match_confidence"],
+        # display-ready: "whichever comparison qualified this deal"
+        "effective_discount_fraction": effective_discount,
+        "effective_reference_price": effective_reference,
+        "effective_savings": effective_savings,
         "detected_at": row["detected_at"],
         "source_label": row["source_label"],
     }

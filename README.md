@@ -41,15 +41,15 @@ hardverapro.hu's `robots.txt` disallows crawling paginated search results
 never hits `offset=` pages and defaults `HA_REQUEST_DELAY` to 2 seconds,
 so it's compliant by default — don't lower that below 1 second.
 
-## How "market price" is computed
+## How a "deal" is decided — two comparisons, one primary
 
-There's no external second-hand price API wired in. Instead, the bot
-computes its own reference price per item: the **median of all other
-recent listings for the same normalized item title**, computed from its
-own price-history database. A listing is flagged as a deal once it's
-priced `HA_DEAL_THRESHOLD` (default 20%) or more below that median, and
-only once at least `HA_MIN_SAMPLES` (default 3) other listings of that
-item have been seen — otherwise there's nothing to compare against.
+**Primary: used-median.** The bot computes its own reference price per
+item — the **median of all other recent listings for the same normalized
+item title**, from its own price-history database. A listing is flagged
+as a deal once it's priced `HA_DEAL_THRESHOLD` (default 20%) or more below
+that median, and only once at least `HA_MIN_SAMPLES` (default 3) other
+listings of that item have been seen — otherwise there's nothing to
+compare against.
 
 Titles are normalized (`scraper/normalize.py`) by lowercasing, stripping
 accents/punctuation, and removing common Hungarian marketplace filler
@@ -57,11 +57,57 @@ words ("eladó", "garanciával", "használt", ...) so e.g. "Eladó iPhone 12
 128GB garanciával" and "iPhone 12 128 GB" are recognized as the same item.
 This is intentionally conservative — it only merges listings whose titles
 reduce to an *identical* key, so it never guesses that two differently
-named products are the same thing.
+named products are the same thing. The tradeoff: categories with heavy
+model/variant diversity (camera gear is the clearest example — every
+listing names a different lens/body combo) rarely produce duplicate
+titles, so used-median alone finds almost nothing there even when real
+deals exist.
 
-If you actually have a specific external price reference in mind (a price
-list, another marketplace, etc.) instead of this self-referential
-approach, swap out `pricing/market.py` — nothing else needs to change.
+**Secondary, fallback only: retail.** When used-median doesn't qualify a
+listing — either not enough comparable listings exist yet, or the
+discount fell short of its own threshold — the bot checks it against the
+current lowest new price on árukereső.hu, Hungary's price-comparison
+engine (a more honest MSRP proxy than a manufacturer list price that's
+often outdated or unpublished). This is what catches deals in exactly the
+categories used-median can't: a listing only needs to be far cheaper than
+buying new, not cheaper than other resellers. Because *some* gap versus
+retail is true of nearly every used item, `HA_RETAIL_DEAL_THRESHOLD`
+defaults much higher (45%) than the used-median threshold.
+
+Cross-site title matching (a resale ad's title vs. a retail listing's) is
+fuzzier than the same-site exact-key matching above, so `retail/matcher.py`
+scores candidates instead of assuming a match, weighted heavily toward
+shared spec tokens (a capacity, a model number) over generic words — and a
+match below `HA_RETAIL_MIN_MATCH_CONFIDENCE` (default 0.6) is not used at
+all, rather than risk comparing against the wrong product's price. Retail
+lookups are cached per normalized item (not per listing — many listings
+share one) for `HA_RETAIL_CACHE_DAYS` (default 7), and capped at
+`HA_RETAIL_MAX_LOOKUPS_PER_CYCLE` (default 15) per scrape cycle — a lookup
+is a real request to a site this bot doesn't own, and coverage is meant to
+build up gradually across cycles, not all in one hour.
+
+A deal always shows which comparison qualified it (`basis`:
+`"used_median"` or `"retail"`) — both the dashboard and console/Telegram
+notifications label it, and a used-median deal can still carry retail
+info alongside it for context even when retail isn't why it qualified.
+
+### Verify retail selectors before trusting retail comparisons
+
+Same situation hardverapro.hu's own parser started in:
+`retail/parser.py`'s selectors and search-URL pattern are **unverified
+guesses** until checked against a real árukereső.hu page (needs
+`arukereso.hu` allowed on the environment's network access). Check with:
+
+```bash
+python -m hardverapro_arbitrage.tools.inspect_retail_html "Steam Deck OLED 512GB"
+```
+
+Prints every product candidate found and its match score. 0 candidates
+means the selectors or URL pattern are wrong; candidates with a low score
+against an item you know it should match means the matcher's tokenizer
+needs a look. Fix `_SELECTORS`/`SEARCH_URL_TEMPLATE` in `retail/parser.py`
+the same way `scraper/parser.py`'s were fixed (see git history for that
+fix as a worked example) — nothing else needs to change.
 
 ## Setup
 
@@ -102,10 +148,13 @@ same price won't spam you again, but a further price drop will.
 
 ## Remote dashboard
 
-The dashboard (`/`) lists currently-flagged deals **ranked biggest relative
-bargain first** — % below the item's own market reference price, ties
-broken by absolute savings. There's also `/api/deals` (JSON, same ranking)
-and `/healthz`. It's read-only and has no login of its own.
+The dashboard (`/`) lists currently-flagged deals, **used-median deals
+first** (ranked by their own discount desc), then retail-only deals after
+(ranked by theirs) — see "How a deal is decided" above for why they're
+never interleaved by raw percentage. Each row is labeled "vs used" or
+"vs new" so it's clear which comparison qualified it. There's also
+`/api/deals` (JSON, same ranking and fields) and `/healthz`. It's
+read-only and has no login of its own.
 
 By default it binds `0.0.0.0:8765`, i.e. every network interface on the
 machine running it — that's enough to reach it from another device on the

@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from hardverapro_arbitrage.models import Deal, Listing
+from hardverapro_arbitrage.models import Deal, Listing, RetailPrice
 from hardverapro_arbitrage.storage import db
 
 
@@ -57,6 +57,7 @@ def _deal(listing_id: str, price: float, reference: float) -> Deal:
     listing = _listing(listing_id, price)
     return Deal(
         listing=listing,
+        basis="used_median",
         market_reference_price=reference,
         discount_fraction=(reference - price) / reference,
         sample_size=3,
@@ -100,3 +101,71 @@ def test_source_label_stored_and_defaults_to_none():
     rows = {r["listing_id"]: r for r in db.get_recent_deals(conn, window_days=90, limit=10)}
     assert rows["1"]["source_label"] == "Steam Deck"
     assert rows["2"]["source_label"] is None
+
+
+def _retail_deal(listing_id: str, price: float, retail_reference: float) -> Deal:
+    listing = _listing(listing_id, price)
+    return Deal(
+        listing=listing,
+        basis="retail",
+        retail_reference_price=retail_reference,
+        retail_discount_fraction=(retail_reference - price) / retail_reference,
+        retail_match_confidence=0.9,
+    )
+
+
+def test_used_median_deals_rank_before_retail_deals_regardless_of_raw_percent():
+    conn = db.connect(":memory:")
+    # a modest 25% used-median discount...
+    db.record_deal(conn, _deal("used", price=75_000, reference=100_000))
+    # ...must still outrank a much bigger 60% retail-only discount, since
+    # used-median is the primary signal and retail is only a fallback.
+    db.record_deal(conn, _retail_deal("retail", price=40_000, retail_reference=100_000))
+
+    rows = db.get_recent_deals(conn, window_days=90, limit=10)
+    assert [r["listing_id"] for r in rows] == ["used", "retail"]
+
+
+def test_retail_price_cache_roundtrip():
+    conn = db.connect(":memory:")
+    assert db.get_cached_retail_price(conn, "steam deck oled 512gb", max_age_days=7) is None
+
+    price = RetailPrice(product_title="Valve Steam Deck OLED 512GB", price=280_000, currency="HUF", url="https://x/1", match_confidence=0.95)
+    db.cache_retail_price(conn, "steam deck oled 512gb", price)
+
+    cached = db.get_cached_retail_price(conn, "steam deck oled 512gb", max_age_days=7)
+    assert cached is not None
+    assert cached.price == 280_000
+    assert cached.match_confidence == 0.95
+
+
+def test_retail_price_cache_upserts():
+    conn = db.connect(":memory:")
+    db.cache_retail_price(
+        conn, "k", RetailPrice(product_title="A", price=100, currency="HUF", url="https://x/1", match_confidence=0.5)
+    )
+    db.cache_retail_price(
+        conn, "k", RetailPrice(product_title="B", price=200, currency="HUF", url="https://x/2", match_confidence=0.9)
+    )
+    cached = db.get_cached_retail_price(conn, "k", max_age_days=7)
+    assert cached.product_title == "B"
+    assert cached.price == 200
+
+
+def test_retail_price_cache_expires():
+    conn = db.connect(":memory:")
+    with conn:
+        conn.execute(
+            "INSERT INTO retail_prices (normalized_key, product_title, price, currency, url, match_confidence, cached_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "k",
+                "Old Price",
+                100,
+                "HUF",
+                "https://x/1",
+                0.9,
+                (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
+            ),
+        )
+    assert db.get_cached_retail_price(conn, "k", max_age_days=7) is None

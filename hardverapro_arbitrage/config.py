@@ -78,6 +78,45 @@ class Config:
     deals_list_window_days: int = field(default_factory=lambda: _env_int("HA_DEALS_LIST_WINDOW_DAYS", 14))
     deals_list_limit: int = field(default_factory=lambda: _env_int("HA_DEALS_LIST_LIMIT", 200))
 
+    # Retail (árukereső.hu) comparison — secondary to the used-median
+    # comparison above. Used-median stays the PRIMARY signal: a listing is
+    # only evaluated against retail when there either isn't enough used-
+    # listing history yet to trust a used-median reference, or the used-
+    # median discount didn't clear its own threshold. Because almost any
+    # used item is *somewhat* cheaper than a new one — that alone means
+    # nothing — this threshold defaults much higher than the used-median
+    # one, so only a genuinely exceptional price relative to retail
+    # qualifies.
+    retail_enabled: bool = field(default_factory=lambda: os.environ.get("HA_RETAIL_ENABLED", "true").lower() != "false")
+    retail_deal_threshold: float = field(default_factory=lambda: _env_float("HA_RETAIL_DEAL_THRESHOLD", 0.45))
+
+    # A retail search result is only trusted as "the same product" above
+    # this confidence (see retail/matcher.py) — below it, no retail
+    # comparison is made for that listing rather than risk comparing
+    # against the wrong product's price.
+    retail_min_match_confidence: float = field(
+        default_factory=lambda: _env_float("HA_RETAIL_MIN_MATCH_CONFIDENCE", 0.6)
+    )
+
+    # Retail prices barely move hour to hour, so they're cached per
+    # normalized item and only refetched after this many days.
+    retail_cache_days: int = field(default_factory=lambda: _env_int("HA_RETAIL_CACHE_DAYS", 7))
+
+    # Hard cap on retail lookups per scrape cycle — a lookup is a real
+    # request to a site this bot doesn't own, and doing one per listing
+    # (there can be hundreds per cycle) would be both slow and impolite.
+    # Coverage builds up gradually across cycles instead of all at once.
+    retail_max_lookups_per_cycle: int = field(
+        default_factory=lambda: _env_int("HA_RETAIL_MAX_LOOKUPS_PER_CYCLE", 15)
+    )
+
+    retail_request_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("HA_RETAIL_REQUEST_TIMEOUT", 15.0)
+    )
+    retail_request_delay_seconds: float = field(
+        default_factory=lambda: _env_float("HA_RETAIL_REQUEST_DELAY", 2.0)
+    )
+
     def validate(self) -> None:
         if not self.search_urls:
             raise ValueError(

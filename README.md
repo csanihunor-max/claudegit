@@ -59,7 +59,7 @@ deal, not what it's currently obtainable for. Detected from the site's own
 The bot computes its own reference price per item — the **median of all
 other recent listings for the same normalized item title**, from its own
 price-history database. A listing is flagged as a deal once it's priced
-`HA_DEAL_THRESHOLD` (default 15%) or more below that median, and only once
+`HA_DEAL_THRESHOLD` (default 5%) or more below that median, and only once
 at least `HA_MIN_SAMPLES` (default 2) other listings of that item have
 been seen — otherwise there's nothing to compare against. Checked against
 real collected data: most duplicate groups only ever reach 2 other
@@ -80,11 +80,13 @@ titles, so this alone finds almost nothing there even when real deals
 exist. Checked against real data: **PC components are the same story,
 worse** — motherboards, GPUs, RAM, storage, PSUs and cooling all came back
 with zero duplicate groups reaching even 2 other listings, in 100-listing
-samples of each. Two levers exist for this, both tuned as far as is safe
-without new false positives: `HA_DEAL_THRESHOLD` was lowered from an
-earlier 20%, and `HA_MAX_PAGES_PER_CATEGORY` was raised from 3 to 6 (up to
-~600 listings deep per category instead of ~300) specifically to raise the
-odds of a duplicate showing up at all in these sparse categories.
+samples of each. Two levers exist for this: `HA_DEAL_THRESHOLD` was
+lowered twice (20% -> 15% -> 5%, close to the noise floor between ordinary
+seller-to-seller price variation and an actual bargain — expect more
+modest markdowns to show up alongside genuine standout deals now), and
+`HA_MAX_PAGES_PER_CATEGORY` was raised from 3 to 6 (up to ~600 listings
+deep per category instead of ~300) specifically to raise the odds of a
+duplicate showing up at all in these sparse categories.
 
 The opposite failure mode also happens — a title too *generic* rather
 than too specific — and it produced a real false positive: "PS4

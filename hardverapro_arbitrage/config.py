@@ -58,14 +58,16 @@ class Config:
     max_group_spread_ratio: float = field(default_factory=lambda: _env_float("HA_MAX_GROUP_SPREAD_RATIO", 3.0))
 
     # A listing is flagged as a deal when its price is at least this far
-    # below the item's rolling market reference price. Lowered from an
-    # earlier 0.20 -- with retail comparison gone (árukereső.hu sits behind
+    # below the item's rolling market reference price. Lowered twice: 0.20
+    # -> 0.15 when retail comparison was dropped (árukereső.hu sits behind
     # a Cloudflare JS challenge no plain HTTP scraper can pass, confirmed
     # by fetching it directly and getting a "Just a moment..." challenge
-    # page rather than any product markup), used-median is now the only
-    # signal, so it needs to actually surface a usable number of deals on
-    # its own rather than stay this conservative.
-    deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.15))
+    # page rather than any product markup, so used-median became the only
+    # signal), then -> 0.05 to surface more listings still. This is now
+    # close to the noise floor -- a small, ordinary price difference
+    # between two sellers can clear 5% on its own, so more of what shows
+    # up here will be a modest, real markdown rather than a standout deal.
+    deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.05))
 
     # How many days of price history feed the rolling market reference.
     reference_window_days: int = field(default_factory=lambda: _env_int("HA_REFERENCE_WINDOW_DAYS", 90))

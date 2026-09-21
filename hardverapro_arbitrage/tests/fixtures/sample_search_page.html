@@ -1,0 +1,38 @@
+<!--
+  SYNTHETIC fixture, hand-written to match the guessed selectors in
+  scraper/parser.py. This is NOT a copy of real hardverapro.hu markup —
+  it exists only to test the parsing/extraction logic in isolation.
+  Once you have real page source, replace this file with an actual saved
+  search-results page and update parser.py's selectors to match it.
+-->
+<html>
+<body>
+  <div class="search-results">
+
+    <div class="media media-image-with-icon">
+      <div class="media-heading">
+        <a href="/laptop/iphone-12-128gb-elado-t1234567">Eladó iPhone 12 128GB, garanciával</a>
+      </div>
+      <div class="media-price">180 000 Ft</div>
+      <div class="media-city">Budapest</div>
+    </div>
+
+    <div class="media media-image-with-icon">
+      <div class="media-heading">
+        <a href="/laptop/iphone-12-128gb-t7654321">iPhone 12 128GB, használt, állapotban</a>
+      </div>
+      <div class="media-price">120 000 Ft</div>
+      <div class="media-city">Szeged</div>
+    </div>
+
+    <!-- malformed card missing a price: parser should skip this, not crash -->
+    <div class="media media-image-with-icon">
+      <div class="media-heading">
+        <a href="/laptop/hiba-t9999999">Hibás hirdetés ár nélkül</a>
+      </div>
+      <div class="media-city">Pécs</div>
+    </div>
+
+  </div>
+</body>
+</html>

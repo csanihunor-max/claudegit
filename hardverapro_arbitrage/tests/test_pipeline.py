@@ -35,7 +35,7 @@ def test_retail_fallback_deduplicates_lookups_by_normalized_key(monkeypatch):
 
     monkeypatch.setattr(pipeline_module, "find_retail_price", fake_find_retail_price)
 
-    config = Config(search_urls=["https://example.com"], retail_deal_threshold=0.5)
+    config = Config(search_urls=["https://example.com"], retail_deal_threshold=0.5, max_pages_per_category=1)
     conn = db.connect(":memory:")
     deals = pipeline_module.run_once(config, conn, _FakeHardveraproClient(), [ConsoleNotifier()])
 
@@ -55,7 +55,7 @@ def test_retail_fallback_reuses_cache_without_a_new_lookup(monkeypatch):
         lambda query_text, client: calls.append(query_text) or None,
     )
 
-    config = Config(search_urls=["https://example.com"], retail_deal_threshold=0.5)
+    config = Config(search_urls=["https://example.com"], retail_deal_threshold=0.5, max_pages_per_category=1)
     conn = db.connect(":memory:")
     db.cache_retail_price(
         conn,
@@ -82,7 +82,7 @@ def test_retail_lookup_budget_is_respected(monkeypatch):
 
     monkeypatch.setattr(pipeline_module, "find_retail_price", fake_find_retail_price)
 
-    config = Config(search_urls=["https://example.com"], retail_max_lookups_per_cycle=2)
+    config = Config(search_urls=["https://example.com"], retail_max_lookups_per_cycle=2, max_pages_per_category=1)
     conn = db.connect(":memory:")
     pipeline_module.run_once(config, conn, _FakeHardveraproClient(), [ConsoleNotifier()])
 
@@ -98,9 +98,67 @@ def test_retail_disabled_skips_fallback_entirely(monkeypatch):
         pipeline_module, "find_retail_price", lambda query_text, client: calls.append(query_text)
     )
 
-    config = Config(search_urls=["https://example.com"], retail_enabled=False)
+    config = Config(search_urls=["https://example.com"], retail_enabled=False, max_pages_per_category=1)
     conn = db.connect(":memory:")
     deals = pipeline_module.run_once(config, conn, _FakeHardveraproClient(), [ConsoleNotifier()])
 
     assert calls == []
     assert deals == []
+
+
+def test_offset_url_builds_correctly():
+    assert pipeline_module._offset_url("https://x.hu/index.html", 0) == "https://x.hu/index.html"
+    assert pipeline_module._offset_url("https://x.hu/index.html", 100) == "https://x.hu/index.html?offset=100"
+    assert pipeline_module._offset_url("https://x.hu/index.html?a=1", 100) == "https://x.hu/index.html?a=1&offset=100"
+
+
+class _PagedFakeClient:
+    """Returns a distinct dummy html string per page, so a monkeypatched
+    parse_search_results can tell pages apart by url/offset without
+    needing real HTML.
+    """
+
+    def __init__(self):
+        self.urls_fetched: list[str] = []
+
+    def get(self, url: str) -> str:
+        self.urls_fetched.append(url)
+        return url  # parse_search_results below is monkeypatched to treat this as the page url
+
+
+def test_pagination_stops_when_a_page_returns_no_listings(monkeypatch):
+    client = _PagedFakeClient()
+
+    def fake_parse(html):
+        # html here IS the url, per _PagedFakeClient.get above
+        if "offset=" not in html:
+            return [_listing("1", 10_000, "Item 1")]
+        return []  # page 2 (offset=100) is empty -- end of category
+
+    monkeypatch.setattr(pipeline_module, "parse_search_results", fake_parse)
+
+    config = Config(search_urls=["https://example.com/index.html"], max_pages_per_category=5, retail_enabled=False)
+    conn = db.connect(":memory:")
+    pipeline_module.run_once(config, conn, client, [ConsoleNotifier()])
+
+    # page 1 had a listing (kept going), page 2 was empty (stopped there, never tried a 3rd)
+    assert client.urls_fetched == [
+        "https://example.com/index.html",
+        "https://example.com/index.html?offset=100",
+    ]
+
+
+def test_pagination_respects_max_pages_cap(monkeypatch):
+    client = _PagedFakeClient()
+    # every page "full" -- pagination would run forever without the cap
+    monkeypatch.setattr(pipeline_module, "parse_search_results", lambda html: [_listing("1", 10_000, "Item 1")])
+
+    config = Config(search_urls=["https://example.com/index.html"], max_pages_per_category=3, retail_enabled=False)
+    conn = db.connect(":memory:")
+    pipeline_module.run_once(config, conn, client, [ConsoleNotifier()])
+
+    assert client.urls_fetched == [
+        "https://example.com/index.html",
+        "https://example.com/index.html?offset=100",
+        "https://example.com/index.html?offset=200",
+    ]

@@ -69,6 +69,16 @@ class Config:
     request_timeout_seconds: float = field(default_factory=lambda: _env_float("HA_REQUEST_TIMEOUT", 15.0))
     request_delay_seconds: float = field(default_factory=lambda: _env_float("HA_REQUEST_DELAY", 2.0))
 
+    # A category page shows ~100 listings before requiring pagination.
+    # `?offset=100`, `?offset=200`, ... reaches further pages — this is
+    # the category BROWSE endpoint's own pagination, not the *search*
+    # endpoint's (`keres.php?...offset=`) that robots.txt disallows, so
+    # it's fine to follow. 1 = only the first page (old behavior); each
+    # additional page is one more request per category per cycle, so
+    # weigh this against how many categories are configured and how
+    # tight HA_POLL_INTERVAL_SECONDS is.
+    max_pages_per_category: int = field(default_factory=lambda: _env_int("HA_MAX_PAGES_PER_CATEGORY", 3))
+
     telegram_bot_token: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_BOT_TOKEN") or None)
     telegram_chat_id: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_CHAT_ID") or None)
 

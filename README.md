@@ -36,10 +36,16 @@ the `listing_card` selector no longer matches; listings printed but with
 wrong titles/prices means one of the more specific selectors needs
 updating. Same dict, same fix either way.
 
-hardverapro.hu's `robots.txt` disallows crawling paginated search results
-(`keres.php?...offset=`) and asks for a 1-second crawl delay; this scraper
-never hits `offset=` pages and defaults `HA_REQUEST_DELAY` to 2 seconds,
-so it's compliant by default — don't lower that below 1 second.
+hardverapro.hu's `robots.txt` disallows crawling paginated *search*
+results (`keres.php?...offset=`) and asks for a 1-second crawl delay.
+This scraper never touches `keres.php`, so it's compliant by default —
+`HA_REQUEST_DELAY` defaults to 2 seconds, don't lower it below 1. It does
+follow *category browse* pagination (`index.html?offset=100`,
+`?offset=200`, ...) up to `HA_MAX_PAGES_PER_CATEGORY` (default 3, i.e. up
+to ~300 listings per category) — a category page's ~100-per-page cap
+otherwise means most categories are only ever seen partially. This is a
+different endpoint than the one robots.txt disallows, verified against a
+real fetch before relying on it.
 
 A listing the seller has marked **"jegelve"** ("on ice" — reserved for
 another buyer, pending a sale) is excluded entirely, not just flagged: it

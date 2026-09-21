@@ -18,6 +18,15 @@ from .storage import db
 
 logger = logging.getLogger(__name__)
 
+_PAGE_SIZE = 100  # hardverapro.hu's category pages show this many listings per page
+
+
+def _offset_url(base_url: str, offset: int) -> str:
+    if offset <= 0:
+        return base_url
+    sep = "&" if "?" in base_url else "?"
+    return f"{base_url}{sep}offset={offset}"
+
 
 def _handle_deal(
     conn: sqlite3.Connection, deal: Deal, source_label: str, notifiers: list[Notifier], deals: list[Deal]
@@ -94,27 +103,32 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
     pending_for_retail: dict[str, list[tuple[Listing, str]]] = defaultdict(list)
 
     for url in config.search_urls:
-        try:
-            html = client.get(url)
-        except FetchError:
-            logger.exception("failed to fetch %s, skipping this cycle", url)
-            continue
-
         source_label = label_for_url(url)
-        listings = parse_search_results(html)
-        logger.info("%s: %d listings parsed", url, len(listings))
 
-        for listing in listings:
-            db.record_observation(conn, listing)
+        for page in range(config.max_pages_per_category):
+            page_url = _offset_url(url, page * _PAGE_SIZE)
+            try:
+                html = client.get(page_url)
+            except FetchError:
+                logger.exception("failed to fetch %s, skipping any further pages of this category this cycle", page_url)
+                break
 
-            recent_prices = db.get_recent_prices(
-                conn, listing.normalized_key, config.reference_window_days, exclude_listing_id=listing.listing_id
-            )
-            deal = evaluate(listing, recent_prices, config)
-            if deal is not None:
-                _handle_deal(conn, deal, source_label, notifiers, deals)
-            else:
-                pending_for_retail[listing.normalized_key].append((listing, source_label))
+            listings = parse_search_results(html)
+            logger.info("%s: %d listings parsed", page_url, len(listings))
+            if not listings:
+                break  # reached the end of the category (or, rarely, a page that's entirely jegelve/malformed)
+
+            for listing in listings:
+                db.record_observation(conn, listing)
+
+                recent_prices = db.get_recent_prices(
+                    conn, listing.normalized_key, config.reference_window_days, exclude_listing_id=listing.listing_id
+                )
+                deal = evaluate(listing, recent_prices, config)
+                if deal is not None:
+                    _handle_deal(conn, deal, source_label, notifiers, deals)
+                else:
+                    pending_for_retail[listing.normalized_key].append((listing, source_label))
 
     _retail_fallback_pass(config, conn, pending_for_retail, notifiers, deals)
 

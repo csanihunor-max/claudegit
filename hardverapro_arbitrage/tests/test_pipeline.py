@@ -150,8 +150,13 @@ def test_pagination_stops_when_a_page_returns_no_listings(monkeypatch):
 
 def test_pagination_respects_max_pages_cap(monkeypatch):
     client = _PagedFakeClient()
-    # every page "full" -- pagination would run forever without the cap
-    monkeypatch.setattr(pipeline_module, "parse_search_results", lambda html: [_listing("1", 10_000, "Item 1")])
+    # every page has a genuinely NEW listing -- pagination would run
+    # forever without the cap, since it would never see "no new listings"
+    monkeypatch.setattr(
+        pipeline_module,
+        "parse_search_results",
+        lambda html: [_listing(html, 10_000, "Item")],  # html is the page url here, so each page's id is unique
+    )
 
     config = Config(search_urls=["https://example.com/index.html"], max_pages_per_category=3, retail_enabled=False)
     conn = db.connect(":memory:")
@@ -162,3 +167,29 @@ def test_pagination_respects_max_pages_cap(monkeypatch):
         "https://example.com/index.html?offset=100",
         "https://example.com/index.html?offset=200",
     ]
+
+
+def test_pagination_stops_on_wraparound_not_just_empty_pages(monkeypatch):
+    # The real bug this guards against: a category smaller than one page
+    # doesn't get an empty result past its end -- the site wraps around
+    # and re-serves page 1's exact listings instead (verified against a
+    # real fetch). "0 listings" never fires as a stop condition there;
+    # only "0 *new* listings" does.
+    client = _PagedFakeClient()
+    same_listing = _listing("1", 10_000, "Item 1")
+    monkeypatch.setattr(pipeline_module, "parse_search_results", lambda html: [same_listing])
+
+    config = Config(search_urls=["https://example.com/index.html"], max_pages_per_category=5, retail_enabled=False)
+    conn = db.connect(":memory:")
+    pipeline_module.run_once(config, conn, client, [ConsoleNotifier()])
+
+    # page 1: listing "1" is new, kept going. page 2: same listing "1"
+    # again -- 0 new, stop. Never reaches page 3, 4, or 5.
+    assert client.urls_fetched == [
+        "https://example.com/index.html",
+        "https://example.com/index.html?offset=100",
+    ]
+
+    # and it was only recorded once, not once per page fetched
+    cur = conn.execute("SELECT COUNT(*) FROM observations")
+    assert cur.fetchone()[0] == 1

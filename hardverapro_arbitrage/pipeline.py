@@ -104,6 +104,7 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
 
     for url in config.search_urls:
         source_label = label_for_url(url)
+        seen_ids: set[str] = set()
 
         for page in range(config.max_pages_per_category):
             page_url = _offset_url(url, page * _PAGE_SIZE)
@@ -113,10 +114,18 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
                 logger.exception("failed to fetch %s, skipping any further pages of this category this cycle", page_url)
                 break
 
-            listings = parse_search_results(html)
-            logger.info("%s: %d listings parsed", page_url, len(listings))
+            page_listings = parse_search_results(html)
+            # A page whose offset exceeds the category's real size doesn't
+            # come back empty — the site wraps around and re-serves page 1
+            # (verified against a real fetch), so "0 listings" never fires
+            # as a stop condition for a small category. Stop instead the
+            # moment a page introduces no listing we haven't already
+            # recorded this cycle, and only process the genuinely new ones.
+            listings = [listing for listing in page_listings if listing.listing_id not in seen_ids]
+            logger.info("%s: %d listings parsed (%d new)", page_url, len(page_listings), len(listings))
             if not listings:
-                break  # reached the end of the category (or, rarely, a page that's entirely jegelve/malformed)
+                break
+            seen_ids.update(listing.listing_id for listing in listings)
 
             for listing in listings:
                 db.record_observation(conn, listing)

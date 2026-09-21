@@ -15,12 +15,20 @@ authentication, so don't expose it to the open internet as-is.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, redirect, render_template_string, url_for
 
 from .config import Config
+from .notify.base import Notifier
+from .notify.console import ConsoleNotifier
+from .notify.telegram import TelegramNotifier
+from .pipeline import run_once
+from .scraper.client import HardveraproClient
 from .storage import db
+
+logger = logging.getLogger(__name__)
 
 _TEMPLATE = """
 <!doctype html>
@@ -42,23 +50,38 @@ _TEMPLATE = """
     a:hover { text-decoration: underline; }
     .discount { font-weight: 700; color: #4d9; }
     .basis { font-weight: 400; font-size: 0.7rem; color: #888; text-transform: none; }
+    .secondhand-margin { font-size: 0.78rem; color: #4d9; white-space: nowrap; }
+    .secondhand-margin.none { color: #666; }
     .price { white-space: nowrap; }
     .empty { color: #888; padding: 2rem 0; text-align: center; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    button.refresh { background: #234; color: #eee; border: 1px solid #456; border-radius: 6px; padding: 0.4rem 0.9rem;
+                      font-size: 0.85rem; cursor: pointer; }
+    button.refresh:hover { background: #345; }
   </style>
 </head>
 <body>
-  <h1>Best Hardverapro deals right now</h1>
+  <div class="toolbar">
+    <h1>Best Hardverapro deals right now</h1>
+    <form method="post" action="{{ url_for('refresh') }}">
+      <button class="refresh" type="submit">↻ Refresh now</button>
+    </form>
+  </div>
+  {% if refresh_error %}<p class="meta" style="color:#e77">{{ refresh_error }}</p>{% endif %}
   <p class="meta">
-    "vs used" = % below other resale listings of the same item (primary signal).
-    "vs new" = % below current retail price, only shown when there wasn't
-    enough used-listing history to compare against.
-    Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min.
+    <b>Margin vs secondhand</b> — % below other resale listings of the same item
+    (primary signal), shown whenever there's enough history to compute it.
+    <b>vs new</b> — % below current retail price; this is what qualified the deal
+    only when there wasn't enough secondhand history to qualify it instead.
+    Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min, or
+    click Refresh for an immediate rescan (takes up to a minute).
   </p>
   {% if deals %}
   <table>
     <thead>
       <tr>
         <th>Discount</th>
+        <th>Margin vs secondhand</th>
         <th>Item</th>
         <th>Category</th>
         <th>Price</th>
@@ -72,6 +95,13 @@ _TEMPLATE = """
       {% for d in deals %}
       <tr>
         <td class="discount">{{ "%.0f"|format(d.effective_discount_fraction * 100) }}% <span class="basis">{{ "vs used" if d.basis == "used_median" else "vs new" }}</span></td>
+        <td>
+          {% if d.discount_fraction is not none %}
+          <span class="secondhand-margin">{{ "%.0f"|format(d.discount_fraction * 100) }}% ({{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }})</span>
+          {% else %}
+          <span class="secondhand-margin none">not enough resale history yet</span>
+          {% endif %}
+        </td>
         <td><a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a></td>
         <td>{{ d.source_label or "" }}</td>
         <td class="price">{{ "{:,.0f}".format(d.price) }} {{ d.currency }}</td>
@@ -124,6 +154,13 @@ def _deal_to_dict(row: sqlite3.Row) -> dict:
     }
 
 
+def _build_notifiers(config: Config) -> list[Notifier]:
+    notifiers: list[Notifier] = [ConsoleNotifier()]
+    if config.telegram_bot_token and config.telegram_chat_id:
+        notifiers.append(TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id))
+    return notifiers
+
+
 def create_app(config: Config) -> Flask:
     app = Flask(__name__)
 
@@ -134,7 +171,7 @@ def create_app(config: Config) -> Flask:
         return db.connect(config.db_path)
 
     @app.get("/")
-    def dashboard():
+    def dashboard(refresh_error: str | None = None):
         conn = _get_conn()
         try:
             rows = db.get_recent_deals(conn, config.deals_list_window_days, config.deals_list_limit)
@@ -145,7 +182,27 @@ def create_app(config: Config) -> Flask:
             deals=[_deal_to_dict(r) for r in rows],
             window_days=config.deals_list_window_days,
             limit=config.deals_list_limit,
+            refresh_error=refresh_error,
         )
+
+    @app.post("/refresh")
+    def refresh():
+        # Synchronous and blocking on purpose: a manual refresh button on a
+        # personal dashboard, not a production endpoint. Takes roughly as
+        # long as one scrape cycle (each search URL is throttled, plus any
+        # retail lookups) — a handful of seconds to under a minute.
+        if not config.search_urls:
+            return dashboard(refresh_error="Can't refresh: HA_SEARCH_URLS isn't set.")
+        conn = _get_conn()
+        try:
+            with HardveraproClient(config) as client:
+                run_once(config, conn, client, _build_notifiers(config))
+        except Exception:
+            logger.exception("manual refresh failed")
+            return dashboard(refresh_error="Refresh failed — see the server log for details.")
+        finally:
+            conn.close()
+        return redirect(url_for("dashboard"))
 
     @app.get("/api/deals")
     def api_deals():

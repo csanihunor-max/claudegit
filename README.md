@@ -151,10 +151,19 @@ same price won't spam you again, but a further price drop will.
 The dashboard (`/`) lists currently-flagged deals, **used-median deals
 first** (ranked by their own discount desc), then retail-only deals after
 (ranked by theirs) — see "How a deal is decided" above for why they're
-never interleaved by raw percentage. Each row is labeled "vs used" or
-"vs new" so it's clear which comparison qualified it. There's also
+never interleaved by raw percentage. Every row shows its **margin vs
+secondhand** explicitly whenever there's enough resale history to compute
+one, regardless of which comparison actually qualified it as a deal — the
+"vs used"/"vs new" badge says why it qualified, the margin line says what
+it's worth against other resellers specifically. There's also
 `/api/deals` (JSON, same ranking and fields) and `/healthz`. It's
-read-only and has no login of its own.
+read-only except for one thing — see below — and has no login of its own.
+
+A **Refresh now** button runs one scrape cycle synchronously and reloads
+the page — real and immediate here, since this is a live Python process,
+not the static page the Artifact dashboard (next section) is. It blocks
+for roughly as long as one scrape cycle (a handful of seconds to under a
+minute), and needs `HA_SEARCH_URLS` set.
 
 By default it binds `0.0.0.0:8765`, i.e. every network interface on the
 machine running it — that's enough to reach it from another device on the

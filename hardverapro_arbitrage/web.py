@@ -174,7 +174,12 @@ def create_app(config: Config) -> Flask:
     def dashboard(refresh_error: str | None = None):
         conn = _get_conn()
         try:
-            rows = db.get_recent_deals(conn, config.deals_list_window_days, config.deals_list_limit)
+            rows = db.get_recent_deals(
+                conn,
+                config.deals_list_window_days,
+                config.deals_list_limit,
+                max_listing_age_seconds=config.poll_interval_seconds * 2,
+            )
         finally:
             conn.close()
         return render_template_string(
@@ -208,7 +213,12 @@ def create_app(config: Config) -> Flask:
     def api_deals():
         conn = _get_conn()
         try:
-            rows = db.get_recent_deals(conn, config.deals_list_window_days, config.deals_list_limit)
+            rows = db.get_recent_deals(
+                conn,
+                config.deals_list_window_days,
+                config.deals_list_limit,
+                max_listing_age_seconds=config.poll_interval_seconds * 2,
+            )
         finally:
             conn.close()
         return jsonify([_deal_to_dict(r) for r in rows])

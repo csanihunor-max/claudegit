@@ -127,6 +127,46 @@ def test_used_median_deals_rank_before_retail_deals_regardless_of_raw_percent():
     assert [r["listing_id"] for r in rows] == ["used", "retail"]
 
 
+def test_recent_deals_freshness_filter_excludes_listing_not_seen_recently():
+    # Real bug this catches: a listing flagged as a deal, then marked
+    # jegelve (or sold) by the seller afterward -- once that happens the
+    # parser stops producing a Listing for it at all (see
+    # scraper/parser.py's `_is_iced`), so its last observation stops
+    # advancing while the deal row itself just sits there unrevised.
+    # Without the freshness join, get_recent_deals kept surfacing it for
+    # the full window regardless.
+    conn = db.connect(":memory:")
+    db.record_observation(conn, _listing("stale", 80_000))
+    conn.execute(
+        "UPDATE observations SET seen_at = ? WHERE listing_id = ?",
+        ((datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(), "stale"),
+    )
+    conn.commit()
+    db.record_deal(conn, _deal("stale", price=80_000, reference=100_000))
+
+    rows = db.get_recent_deals(conn, window_days=90, limit=10, max_listing_age_seconds=3600)
+    assert rows == []
+
+
+def test_recent_deals_freshness_filter_keeps_listing_seen_recently():
+    conn = db.connect(":memory:")
+    db.record_observation(conn, _listing("fresh", 80_000))
+    db.record_deal(conn, _deal("fresh", price=80_000, reference=100_000))
+
+    rows = db.get_recent_deals(conn, window_days=90, limit=10, max_listing_age_seconds=3600)
+    assert [r["listing_id"] for r in rows] == ["fresh"]
+
+
+def test_recent_deals_without_freshness_filter_ignores_staleness():
+    # max_listing_age_seconds is opt-in -- omitting it (the default)
+    # preserves the old behavior for callers/tests that don't pass it.
+    conn = db.connect(":memory:")
+    db.record_deal(conn, _deal("no-observation", price=80_000, reference=100_000))
+
+    rows = db.get_recent_deals(conn, window_days=90, limit=10)
+    assert [r["listing_id"] for r in rows] == ["no-observation"]
+
+
 def test_retail_price_cache_roundtrip():
     conn = db.connect(":memory:")
     assert db.get_cached_retail_price(conn, "steam deck oled 512gb", max_age_days=7) is None

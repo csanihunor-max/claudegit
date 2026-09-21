@@ -192,6 +192,17 @@ it's worth against other resellers specifically. There's also
 `/api/deals` (JSON, same ranking and fields) and `/healthz`. It's
 read-only except for one thing — see below — and has no login of its own.
 
+A deal only keeps showing while its listing is still being freshly
+re-observed — seen again, un-iced, within the last two poll cycles
+(`storage/db.py`'s `get_recent_deals(..., max_listing_age_seconds=...)`).
+A flagged deal is a row written once and never revised, so without this a
+listing that later goes jegelve or gets sold — the parser then simply
+stops producing it as a `Listing` at all, see `_is_iced` above — would
+otherwise keep showing as an active deal for the full
+`HA_DEALS_LIST_WINDOW_DAYS` regardless. Caught from a real report: a Meta
+Quest listing that had gone jegelve after being flagged kept showing as
+available.
+
 A **Refresh now** button runs one scrape cycle synchronously and reloads
 the page — real and immediate here, since this is a live Python process,
 not the static page the Artifact dashboard (next section) is. It blocks

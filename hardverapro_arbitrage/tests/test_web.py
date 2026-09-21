@@ -43,6 +43,12 @@ def _make_client(tmp_path, deals):
     config = Config(search_urls=["https://example.com"], db_path=str(tmp_path / "test.sqlite3"))
     conn = db.connect(config.db_path)
     for deal in deals:
+        # Mirrors real pipeline usage (pipeline.py always records an
+        # observation for a listing before evaluating/recording it as a
+        # deal) -- the dashboard now requires a fresh observation too (see
+        # get_recent_deals' max_listing_age_seconds), so a deal with none
+        # would wrongly look like a stale/jegelve listing under test.
+        db.record_observation(conn, deal.listing)
         db.record_deal(conn, deal)
     conn.close()
     return create_app(config).test_client()

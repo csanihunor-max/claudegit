@@ -205,7 +205,13 @@ def record_deal(conn: sqlite3.Connection, deal: Deal, *, source_label: str | Non
     conn.commit()
 
 
-def get_recent_deals(conn: sqlite3.Connection, window_days: int, limit: int) -> list[sqlite3.Row]:
+def get_recent_deals(
+    conn: sqlite3.Connection,
+    window_days: int,
+    limit: int,
+    *,
+    max_listing_age_seconds: float | None = None,
+) -> list[sqlite3.Row]:
     """The best current deals: one row per listing (its most recent
     detection within the window, so a re-scraped-but-still-underpriced
     listing shows up once, not once per cycle). Ranked with used-median
@@ -213,26 +219,50 @@ def get_recent_deals(conn: sqlite3.Connection, window_days: int, limit: int) -> 
     retail-only deals after, by their retail discount desc — never
     interleaved by raw number, since a 25% used-median discount and a 50%
     retail discount aren't the same kind of signal.
+
+    `max_listing_age_seconds`, when given, additionally requires the
+    listing to have been freshly re-observed within that many seconds of
+    now — i.e. it still parses as an active, non-jegelve listing (see
+    `scraper/parser.py`'s `_is_iced`, which skips a reserved card before
+    it ever becomes an observation). Without this, a listing flagged as a
+    deal once keeps showing for the full `window_days` even after the
+    seller marks it jegelve or sells it, since a deal row is never
+    updated or removed after the fact — a real false positive this
+    caught (a Meta Quest listing that had gone jegelve since being
+    flagged, but kept showing as an active deal).
     """
     since = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    query = """
+        SELECT d.* FROM deals d
+        INNER JOIN (
+            SELECT listing_id, MAX(detected_at) AS latest_detected_at
+            FROM deals
+            WHERE detected_at >= ?
+            GROUP BY listing_id
+        ) latest
+            ON d.listing_id = latest.listing_id AND d.detected_at = latest.latest_detected_at
+    """
+    params: list = [since]
+    if max_listing_age_seconds is not None:
+        fresh_since = (datetime.now(timezone.utc) - timedelta(seconds=max_listing_age_seconds)).isoformat()
+        query += """
+        INNER JOIN (
+            SELECT listing_id, MAX(seen_at) AS last_seen_at
+            FROM observations
+            GROUP BY listing_id
+        ) fresh
+            ON fresh.listing_id = d.listing_id AND fresh.last_seen_at >= ?
+        """
+        params.append(fresh_since)
+    query += """
+        ORDER BY
+            CASE WHEN d.basis = 'used_median' THEN 0 ELSE 1 END ASC,
+            CASE WHEN d.basis = 'used_median' THEN d.discount_fraction ELSE d.retail_discount_fraction END DESC
+        LIMIT ?
+    """
+    params.append(limit)
     with closing(conn.cursor()) as cur:
-        cur.execute(
-            """
-            SELECT d.* FROM deals d
-            INNER JOIN (
-                SELECT listing_id, MAX(detected_at) AS latest_detected_at
-                FROM deals
-                WHERE detected_at >= ?
-                GROUP BY listing_id
-            ) latest
-                ON d.listing_id = latest.listing_id AND d.detected_at = latest.latest_detected_at
-            ORDER BY
-                CASE WHEN d.basis = 'used_median' THEN 0 ELSE 1 END ASC,
-                CASE WHEN d.basis = 'used_median' THEN d.discount_fraction ELSE d.retail_discount_fraction END DESC
-            LIMIT ?
-            """,
-            (since, limit),
-        )
+        cur.execute(query, params)
         return cur.fetchall()
 
 

@@ -20,6 +20,7 @@ import sqlite3
 from flask import Flask, jsonify, redirect, render_template_string, request, url_for
 
 from .config import Config
+from .geo import describe_location
 from .notify.base import Notifier
 from .notify.console import ConsoleNotifier
 from .notify.telegram import TelegramNotifier
@@ -66,9 +67,12 @@ _TEMPLATE = """
   {% if refresh_error %}<p class="meta" style="color:#e77">{{ refresh_error }}</p>{% endif %}
   <p class="meta">
     <b>Discount</b> — % below other resale listings of the same item on hardverapro.hu
-    itself. Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min, or
-    click Refresh for an immediate rescan (takes up to a minute). Click a column header
-    to sort by it (click again to flip direction).
+    itself. <b>Distance</b> — straight-line km from Budapest, best-effort from the
+    listing's location text (a fixed lookup table of known towns, not a geocoding
+    service — "—" means the location wasn't recognized). Last {{ window_days }} days,
+    top {{ limit }}. Auto-refreshes every 5 min, or click Refresh for an immediate
+    rescan (takes up to a minute). Click a column header to sort by it (click again
+    to flip direction).
   </p>
   <form method="get" class="toolbar" style="margin-bottom: 0.75rem;">
     <input type="hidden" name="sort" value="{{ sort }}">
@@ -93,6 +97,7 @@ _TEMPLATE = """
         <th>Reference</th>
         <th><a href="{{ sort_links.savings }}">Savings{{ sort_arrows.savings }}</a></th>
         <th>Location</th>
+        <th><a href="{{ sort_links.distance }}">Distance{{ sort_arrows.distance }}</a></th>
         <th><a href="{{ sort_links.detected }}">Detected{{ sort_arrows.detected }}</a></th>
       </tr>
     </thead>
@@ -106,6 +111,7 @@ _TEMPLATE = """
         <td class="price">{{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }}</td>
         <td class="price">{{ "{:,.0f}".format(d.market_reference_price - d.price) }} {{ d.currency }}</td>
         <td>{{ d.location or "" }}</td>
+        <td class="price">{% if d.distance_km is not none %}{{ "%.0f"|format(d.distance_km) }} km ({{ d.region }}){% else %}—{% endif %}</td>
         <td>{{ d.detected_at.split("T")[0] }}</td>
       </tr>
       {% endfor %}
@@ -129,11 +135,22 @@ _SORT_KEYS: dict[str, tuple] = {
     "category": (lambda d: (d["source_label"] or "").lower(), "asc"),
     "savings": (lambda d: d["savings"], "desc"),
     "detected": (lambda d: d["detected_at"], "desc"),
+    "distance": (None, "asc"),  # special-cased in _sort_deals -- see below
 }
 _DEFAULT_SORT = "discount"
 
 
 def _sort_deals(deals: list[dict], sort: str, direction: str) -> list[dict]:
+    if sort == "distance":
+        # Unmatched locations (distance_km is None) always sort last,
+        # regardless of direction -- "unknown" is never "closest" or
+        # "farthest", it's just missing, so a plain reverse=True/False on
+        # a single key (e.g. treating None as infinity) would wrongly put
+        # them first when sorting "farthest first".
+        known = [d for d in deals if d["distance_km"] is not None]
+        unknown = [d for d in deals if d["distance_km"] is None]
+        known.sort(key=lambda d: d["distance_km"], reverse=(direction == "desc"))
+        return known + unknown
     key_fn, _ = _SORT_KEYS.get(sort, _SORT_KEYS[_DEFAULT_SORT])
     return sorted(deals, key=key_fn, reverse=(direction == "desc"))
 
@@ -145,13 +162,17 @@ def _resolve_sort(sort: str | None, direction: str | None) -> tuple[str, str]:
 
 
 def _deal_to_dict(row: sqlite3.Row) -> dict:
+    location = row["location"]
+    geo = describe_location(location)
     return {
         "listing_id": row["listing_id"],
         "title": row["title"],
         "url": row["url"],
         "price": row["price"],
         "currency": row["currency"],
-        "location": row["location"],
+        "location": location,
+        "distance_km": geo["distance_km"] if geo else None,
+        "region": geo["region"] if geo else None,
         "market_reference_price": row["market_reference_price"],
         "discount_fraction": row["discount_fraction"],
         "sample_size": row["sample_size"],

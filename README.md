@@ -7,8 +7,8 @@ item's own recent second-hand market price.
 ## Quickstart
 
 1. `pip install -r requirements.txt`
-2. `cp .env.example .env` — works as-is, pre-filled with this bot's own
-   curated list of 20 hardverapro.hu categories
+2. `cp .env.example .env` — works as-is, pre-filled with every
+   hardverapro.hu electronics/computing category, 53 in total
    (`hardverapro_arbitrage/categories.py`'s `DEFAULT_SEARCH_URLS` — the
    two aren't linked automatically, so if you add/remove a category
    there, copy the change into `.env.example` too). Edit `HA_SEARCH_URLS`
@@ -119,6 +119,37 @@ without executing JavaScript and solving the challenge. See git history
 (the `retail/` package, since deleted) if reviving this against a
 different, actually-scrapable price source.
 
+## Tracked categories
+
+Every hardverapro.hu electronics/computing browse category is tracked by
+default — 53 in total, spanning gaming handhelds/consoles, phones/
+tablets/wearables, laptops/desktops/servers, every PC component and
+peripheral, home theater/hifi, and photo/video
+(`hardverapro_arbitrage/categories.py`'s `DEFAULT_SEARCH_URLS`, checked
+against a live fetch one by one before being added). Deliberately left
+out: each department's own "boltok_szervizek" (shops/services storefront
+pages, not individual product listings), "domain" (domain names, not a
+physical product), and the whole "egyeb" (misc) department — cars,
+fashion, home goods, coupons, services — since that's explicitly the
+site's general-classifieds overflow, not "hardver" at all, and this bot's
+comparison logic is built for electronics specifically.
+
+## Distance from Budapest / Pest county
+
+Every deal is tagged with a best-effort straight-line distance from
+Budapest and a region (`Budapest`, `Pest county`, or `Other`), computed
+from the listing's location text against a static table of known
+settlements' coordinates (`geo.py`) — not a geocoding API call, on
+purpose: the retail comparison above already hit one external site that
+turned out to be unusable, so this has no network dependency and nothing
+that can start failing if a third-party service changes or blocks
+requests. Coverage is necessarily partial (a fixed list of ~100 towns,
+not all ~3200 Hungarian settlements) — a location that doesn't match
+anything shows as unknown (`—` on the dashboard, `null` in the API)
+rather than guessing. A location listing several pickup points (a seller
+offering more than one) uses whichever is closest to Budapest, since
+that's what actually determines pickup feasibility.
+
 ## Setup
 
 ```bash
@@ -160,11 +191,11 @@ same price won't spam you again, but a further price drop will.
 
 The dashboard (`/`) lists currently-flagged deals, biggest discount first
 by default. Click a column header to sort by it instead (discount, price,
-category, savings or detected date), click again to flip direction; the
-category dropdown filters to one category at a time. `/api/deals` takes
-the same `?sort=`, `?dir=` and `?category=` query params and returns JSON
-in the same order. There's also `/healthz`. It's read-only except for one
-thing — see below — and has no login of its own.
+category, savings, distance from Budapest, or detected date), click again
+to flip direction; the category dropdown filters to one category at a
+time. `/api/deals` takes the same `?sort=`, `?dir=` and `?category=` query
+params and returns JSON in the same order. There's also `/healthz`. It's
+read-only except for one thing — see below — and has no login of its own.
 
 A deal only keeps showing while its listing is still being freshly
 re-observed — seen again, un-iced, within the last two poll cycles

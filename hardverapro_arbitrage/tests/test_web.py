@@ -7,21 +7,21 @@ from hardverapro_arbitrage.storage import db
 from hardverapro_arbitrage.web import create_app
 
 
-def _listing(listing_id: str, price: float) -> Listing:
+def _listing(listing_id: str, price: float, location: str = "Budapest") -> Listing:
     return Listing(
         listing_id=listing_id,
         url=f"https://hardverapro.hu/x-t{listing_id}",
         title=f"Item {listing_id}",
         price=price,
         currency="HUF",
-        location="Budapest",
+        location=location,
         seen_at=datetime.now(timezone.utc),
     )
 
 
-def _deal(listing_id: str, price: float, reference: float) -> Deal:
+def _deal(listing_id: str, price: float, reference: float, location: str = "Budapest") -> Deal:
     return Deal(
-        listing=_listing(listing_id, price),
+        listing=_listing(listing_id, price, location=location),
         market_reference_price=reference,
         discount_fraction=(reference - price) / reference,
         sample_size=3,
@@ -157,6 +157,42 @@ def test_api_deals_respects_sort_and_category_params(tmp_path):
 
     response = client.get("/api/deals?category=Nonexistent")
     assert response.get_json() == []
+
+
+def test_api_deals_includes_distance_and_region(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("1", price=80_000, reference=100_000, location="Budapest"),
+            _deal("2", price=80_000, reference=100_000, location="Gödöllő"),
+            _deal("3", price=80_000, reference=100_000, location="Miskolc"),
+            _deal("4", price=80_000, reference=100_000, location="Nowheresville"),
+        ],
+    )
+    by_id = {d["listing_id"]: d for d in client.get("/api/deals").get_json()}
+    assert by_id["1"]["region"] == "Budapest"
+    assert by_id["1"]["distance_km"] == 0.0
+    assert by_id["2"]["region"] == "Pest county"
+    assert by_id["3"]["region"] == "Other"
+    assert by_id["3"]["distance_km"] > 100
+    assert by_id["4"]["region"] is None
+    assert by_id["4"]["distance_km"] is None
+
+
+def test_sort_by_distance_puts_unknown_last_regardless_of_direction(tmp_path):
+    client = _make_client(
+        tmp_path,
+        [
+            _deal("far", price=80_000, reference=100_000, location="Miskolc"),
+            _deal("near", price=80_000, reference=100_000, location="Budapest"),
+            _deal("unknown", price=80_000, reference=100_000, location="Nowheresville"),
+        ],
+    )
+    nearest_first = client.get("/api/deals?sort=distance&dir=asc").get_json()
+    assert [d["listing_id"] for d in nearest_first] == ["near", "far", "unknown"]
+
+    farthest_first = client.get("/api/deals?sort=distance&dir=desc").get_json()
+    assert [d["listing_id"] for d in farthest_first] == ["far", "near", "unknown"]
 
 
 def test_invalid_sort_param_falls_back_to_default(tmp_path):

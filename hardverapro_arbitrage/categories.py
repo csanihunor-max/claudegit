@@ -20,6 +20,13 @@ _LABELS: dict[str, str] = {
     "pc_szerver/asztali_gep": "Desktop PCs",
     "notebook/apple": "MacBooks",
     "notebook/pc": "Laptops",
+    "hardver/alaplap": "Motherboards",
+    "hardver/videokartya": "Graphics Cards",
+    "hardver/processzor": "CPUs",
+    "hardver/memoria": "RAM",
+    "hardver/merevlemez_ssd": "Storage / SSDs",
+    "hardver/haz_tapegyseg": "PSUs / Cases",
+    "hardver/hutes": "Cooling",
 }
 
 

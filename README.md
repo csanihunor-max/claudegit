@@ -41,6 +41,13 @@ hardverapro.hu's `robots.txt` disallows crawling paginated search results
 never hits `offset=` pages and defaults `HA_REQUEST_DELAY` to 2 seconds,
 so it's compliant by default — don't lower that below 1 second.
 
+A listing the seller has marked **"jegelve"** ("on ice" — reserved for
+another buyer, pending a sale) is excluded entirely, not just flagged: it
+isn't actually available, and its price shouldn't count as a market
+comparable either — a reserved item's price reflects an already-agreed
+deal, not what it's currently obtainable for. Detected from the site's own
+`uad-status-iced` marker on the listing card.
+
 ## How a "deal" is decided — two comparisons, one primary
 
 **Primary: used-median.** The bot computes its own reference price per
@@ -65,7 +72,12 @@ named products are the same thing. The tradeoff: categories with heavy
 model/variant diversity (camera gear is the clearest example — every
 listing names a different lens/body combo) rarely produce duplicate
 titles, so used-median alone finds almost nothing there even when real
-deals exist.
+deals exist. Checked against real data: **PC components are the same
+story, worse** — motherboards, GPUs, RAM, storage, PSUs and cooling all
+came back with zero duplicate groups reaching even 2 other listings, in
+100-listing samples of each. They're tracked anyway (accumulating history
+costs nothing) but don't expect used-median deals from them; retail
+comparison below is what will actually make these categories useful.
 
 **Secondary, fallback only: retail.** When used-median doesn't qualify a
 listing — either not enough comparable listings exist yet, or the

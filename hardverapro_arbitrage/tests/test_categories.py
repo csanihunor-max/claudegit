@@ -20,3 +20,9 @@ def test_never_raises_on_a_bare_domain():
     # no meaningful path segment to fall back to — just mustn't raise
     result = label_for_url("https://hardverapro.hu/")
     assert isinstance(result, str) and result
+
+
+def test_pc_parts_categories_labeled():
+    assert label_for_url("https://hardverapro.hu/aprok/hardver/alaplap/index.html") == "Motherboards"
+    assert label_for_url("https://hardverapro.hu/aprok/hardver/videokartya/index.html") == "Graphics Cards"
+    assert label_for_url("https://hardverapro.hu/aprok/hardver/processzor/index.html") == "CPUs"

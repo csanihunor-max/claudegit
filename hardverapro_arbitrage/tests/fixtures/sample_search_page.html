@@ -3,7 +3,9 @@
   category listing page (aprok/hardver/alaplap) via
   `python -m hardverapro_arbitrage.tools.inspect_html`. The third card has
   its price column manually removed to test that malformed cards are
-  skipped rather than crashing the parser.
+  skipped rather than crashing the parser. The fourth card (uadid
+  7610283) is a real "jegelve" (reserved/on-ice) listing, to test
+  that those are excluded entirely.
 -->
 <html>
 <body>
@@ -250,6 +252,89 @@
  </div>
  <!--</div>-->
 </li>
+
+<li class="media uad-status-iced" data-uadid="7610283">
+ <div class="uad-col uad-col-image">
+  <a class="uad-image" href="https://hardverapro.hu/apro/elado_a4c2/friss.html">
+   <img alt="" data-retina-url="//cdn.rios.hu/dl/uad/2026-07/7610283/h_abc4.jpg" src="//cdn.rios.hu/dl/uad/2026-07/7610283/h_abc4.jpg/100"/>
+  </a>
+  <span class="uad-save">
+   <a data-modal-open="/muvelet/hozzaferes/belepes.php?url=%2Faprok%2Fhardver%2Falaplap%2Findex.html%3F_tc%3D1" data-original-title="Belépés után a kedvencekhez adhatod" data-placement="left" data-toggle="tooltip" href="javascript:;">
+    <span class="far fa-heart">
+    </span>
+   </a>
+  </span>
+ </div>
+ <!--<div class="media-body">-->
+ <div class="uad-col uad-col-title">
+  <h1>
+   <a href="https://hardverapro.hu/apro/elado_a4c2/friss.html">
+    ASUS TUF GAMING B850-PLUS WIFI eladó! GAR/SZÁMLA (nevedre)! Friss BIOS! Akár 6000MHz/CL30 RAM-mal is
+   </a>
+   <small class="uad-time">
+    –
+    <time>
+     ma 11:05
+    </time>
+   </small>
+  </h1>
+  <div class="uad-price uad-price-iced">
+   <span class="text-nowrap">
+    66 999 Ft
+   </span>
+   <small class="ml-1">
+    <span aria-hidden="true" class="fas fa-snowflake">
+    </span>
+    jegelve
+   </small>
+  </div>
+ </div>
+ <div class="uad-col uad-col-price">
+  <div class="uad-price uad-price-iced">
+   <span class="text-nowrap">
+    66 999 Ft
+   </span>
+   <small class="text-nowrap ml-1">
+    <span aria-hidden="true" class="fas fa-snowflake">
+    </span>
+    jegelve
+   </small>
+  </div>
+ </div>
+ <div class="uad-col uad-col-info">
+  <div class="uad-user">
+   <span class="uad-user-face">
+    <img alt="Arckép" src="//cdn.rios.hu/dl/faces/small/premium/p59.gif"/>
+   </span>
+   <span class="uad-user-text">
+    <a href="/tag/hardverabc.html?uadid=7610283">
+     HardverABC
+    </a>
+    <span class="uad-rating uad-rating-positive" data-toggle="tooltip" title="143 pozitív értékelése van">
+     +143
+    </span>
+   </span>
+  </div>
+  <div class="uad-cities">
+   Budapest
+  </div>
+  <div class="uad-time">
+   <time>
+    ma 11:05
+   </time>
+  </div>
+ </div>
+ <div class="uad-col uad-col-icons">
+  <span class="uad-save">
+   <a data-modal-open="/muvelet/hozzaferes/belepes.php?url=%2Faprok%2Fhardver%2Falaplap%2Findex.html%3F_tc%3D1" data-original-title="Belépés után a kedvencekhez adhatod" data-placement="left" data-toggle="tooltip" href="javascript:;">
+    <span class="far fa-heart">
+    </span>
+   </a>
+  </span>
+ </div>
+ <!--</div>-->
+</li>
+
 
   </ul>
 </body>

@@ -6,7 +6,11 @@ Selectors verified against real hardverapro.hu category/search pages
 directly instead of trying to regex it out of the URL. A "featured"
 ("Előresorolva") card is `<li class="media featured" ...>` and additionally
 repeats the price inside the title column; we read the price from
-`.uad-col-price` specifically to avoid picking up that duplicate.
+`.uad-col-price` specifically to avoid picking up that duplicate. A
+"jegelve" ("on ice") card, `<li class="media uad-status-iced" ...>`, means
+the seller has marked it reserved for another buyer — excluded entirely
+(see `_is_iced`), not just flagged, since it's not actually available and
+its price shouldn't count as a market comparable either.
 
 If the site markup changes later, `python -m
 hardverapro_arbitrage.tools.inspect_html <url-or-file>` shows exactly what
@@ -50,8 +54,29 @@ def _parse_price(text: str) -> tuple[float, str] | None:
     return float(digits), "HUF"
 
 
+def _is_iced(card: Tag) -> bool:
+    """"Jegelve" ("on ice", marked with a snowflake icon and that literal
+    word on the site) means the seller has told the site this item is
+    reserved for another buyer — pending a sale, not actually available.
+    Marked on the card itself (`<li class="media uad-status-iced" ...>`)
+    and again on the price element (`uad-price-iced`); the card-level
+    class is the more direct signal.
+
+    Excluded entirely rather than just flagged, because its price
+    shouldn't count as a market comparable either: a reserved item's
+    asking price reflects an already-agreed (or about-to-be) deal, not
+    what the item is currently obtainable for.
+    """
+    return "uad-status-iced" in card.get("class", [])
+
+
 def _parse_card(card: Tag, base_url: str) -> Listing | None:
     listing_id = card.get("data-uadid")
+
+    if _is_iced(card):
+        logger.debug("skipping jegelve (reserved) listing %s", listing_id)
+        return None
+
     title_el = card.select_one(_SELECTORS["title"])
     price_el = card.select_one(_SELECTORS["price"])
 

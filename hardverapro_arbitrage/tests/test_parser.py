@@ -14,7 +14,9 @@ def test_parses_valid_cards_and_skips_malformed_ones():
     html = FIXTURE.read_text(encoding="utf-8")
     listings = parse_search_results(html)
 
-    assert len(listings) == 2  # the third card has its price column stripped and is skipped
+    # the third card has its price column stripped, the fourth is jegelve
+    # (reserved) — both skipped
+    assert len(listings) == 2
 
     first = listings[0]
     assert first.listing_id == "7717205"
@@ -37,3 +39,10 @@ def test_different_items_get_different_normalized_keys():
 
 def test_no_cards_returns_empty_list_without_raising():
     assert parse_search_results("<html><body>nothing here</body></html>") == []
+
+
+def test_jegelve_reserved_listing_is_excluded():
+    html = FIXTURE.read_text(encoding="utf-8")
+    listings = parse_search_results(html)
+    ids = [listing.listing_id for listing in listings]
+    assert "7610283" not in ids  # the real jegelve card in the fixture

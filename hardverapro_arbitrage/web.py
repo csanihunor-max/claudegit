@@ -3,8 +3,7 @@
 Runs as its own process (`python -m hardverapro_arbitrage serve`), so it
 stays reachable even if the scrape loop is mid-cycle, and vice versa.
 Deals are listed with the biggest relative bargain first (discount % below
-the item's own market reference price), ties broken by absolute savings —
-see README for why % is the primary ranking, not raw savings.
+the item's own market reference price), ties broken by absolute savings.
 
 Reachability: bound to HA_WEB_HOST (default 0.0.0.0, i.e. every network
 interface on the machine it runs on) and HA_WEB_PORT. That makes it
@@ -49,9 +48,6 @@ _TEMPLATE = """
     a { color: #6cf; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .discount { font-weight: 700; color: #4d9; }
-    .basis { font-weight: 400; font-size: 0.7rem; color: #888; text-transform: none; }
-    .secondhand-margin { font-size: 0.78rem; color: #4d9; white-space: nowrap; }
-    .secondhand-margin.none { color: #666; }
     .price { white-space: nowrap; }
     .empty { color: #888; padding: 2rem 0; text-align: center; }
     .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
@@ -69,11 +65,8 @@ _TEMPLATE = """
   </div>
   {% if refresh_error %}<p class="meta" style="color:#e77">{{ refresh_error }}</p>{% endif %}
   <p class="meta">
-    <b>Margin vs secondhand</b> — % below other resale listings of the same item
-    (primary signal), shown whenever there's enough history to compute it.
-    <b>vs new</b> — % below current retail price; this is what qualified the deal
-    only when there wasn't enough secondhand history to qualify it instead.
-    Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min, or
+    <b>Discount</b> — % below other resale listings of the same item on hardverapro.hu
+    itself. Last {{ window_days }} days, top {{ limit }}. Auto-refreshes every 5 min, or
     click Refresh for an immediate rescan (takes up to a minute).
   </p>
   {% if deals %}
@@ -81,7 +74,6 @@ _TEMPLATE = """
     <thead>
       <tr>
         <th>Discount</th>
-        <th>Margin vs secondhand</th>
         <th>Item</th>
         <th>Category</th>
         <th>Price</th>
@@ -94,19 +86,12 @@ _TEMPLATE = """
     <tbody>
       {% for d in deals %}
       <tr>
-        <td class="discount">{{ "%.0f"|format(d.effective_discount_fraction * 100) }}% <span class="basis">{{ "vs used" if d.basis == "used_median" else "vs new" }}</span></td>
-        <td>
-          {% if d.discount_fraction is not none %}
-          <span class="secondhand-margin">{{ "%.0f"|format(d.discount_fraction * 100) }}% ({{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }})</span>
-          {% else %}
-          <span class="secondhand-margin none">not enough resale history yet</span>
-          {% endif %}
-        </td>
+        <td class="discount">{{ "%.0f"|format(d.discount_fraction * 100) }}%</td>
         <td><a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a></td>
         <td>{{ d.source_label or "" }}</td>
         <td class="price">{{ "{:,.0f}".format(d.price) }} {{ d.currency }}</td>
-        <td class="price">{{ "{:,.0f}".format(d.effective_reference_price) }} {{ d.currency }}</td>
-        <td class="price">{{ "{:,.0f}".format(d.effective_savings) }} {{ d.currency }}</td>
+        <td class="price">{{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }}</td>
+        <td class="price">{{ "{:,.0f}".format(d.market_reference_price - d.price) }} {{ d.currency }}</td>
         <td>{{ d.location or "" }}</td>
         <td>{{ d.detected_at.split("T")[0] }}</td>
       </tr>
@@ -122,15 +107,6 @@ _TEMPLATE = """
 
 
 def _deal_to_dict(row: sqlite3.Row) -> dict:
-    basis = row["basis"]
-    if basis == "used_median":
-        effective_discount = row["discount_fraction"]
-        effective_reference = row["market_reference_price"]
-    else:
-        effective_discount = row["retail_discount_fraction"]
-        effective_reference = row["retail_reference_price"]
-    effective_savings = None if effective_reference is None else effective_reference - row["price"]
-
     return {
         "listing_id": row["listing_id"],
         "title": row["title"],
@@ -138,17 +114,10 @@ def _deal_to_dict(row: sqlite3.Row) -> dict:
         "price": row["price"],
         "currency": row["currency"],
         "location": row["location"],
-        "basis": basis,
         "market_reference_price": row["market_reference_price"],
         "discount_fraction": row["discount_fraction"],
         "sample_size": row["sample_size"],
-        "retail_reference_price": row["retail_reference_price"],
-        "retail_discount_fraction": row["retail_discount_fraction"],
-        "retail_match_confidence": row["retail_match_confidence"],
-        # display-ready: "whichever comparison qualified this deal"
-        "effective_discount_fraction": effective_discount,
-        "effective_reference_price": effective_reference,
-        "effective_savings": effective_savings,
+        "savings": row["market_reference_price"] - row["price"],
         "detected_at": row["detected_at"],
         "source_label": row["source_label"],
     }
@@ -194,8 +163,8 @@ def create_app(config: Config) -> Flask:
     def refresh():
         # Synchronous and blocking on purpose: a manual refresh button on a
         # personal dashboard, not a production endpoint. Takes roughly as
-        # long as one scrape cycle (each search URL is throttled, plus any
-        # retail lookups) — a handful of seconds to under a minute.
+        # long as one scrape cycle (each search URL is throttled) — a
+        # handful of seconds to under a minute.
         if not config.search_urls:
             return dashboard(refresh_error="Can't refresh: HA_SEARCH_URLS isn't set.")
         conn = _get_conn()

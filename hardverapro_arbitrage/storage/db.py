@@ -9,7 +9,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from ..models import Deal, Listing, RetailPrice
+from ..models import Deal, Listing
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -44,32 +44,14 @@ CREATE TABLE IF NOT EXISTS deals (
     price REAL NOT NULL,
     currency TEXT NOT NULL,
     location TEXT,
-    basis TEXT NOT NULL DEFAULT 'used_median',
-    market_reference_price REAL,
-    discount_fraction REAL,
-    sample_size INTEGER NOT NULL DEFAULT 0,
-    retail_reference_price REAL,
-    retail_discount_fraction REAL,
-    retail_match_confidence REAL,
+    market_reference_price REAL NOT NULL,
+    discount_fraction REAL NOT NULL,
+    sample_size INTEGER NOT NULL,
     detected_at TEXT NOT NULL,
     source_label TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_deals_listing ON deals (listing_id, detected_at);
 CREATE INDEX IF NOT EXISTS idx_deals_detected_at ON deals (detected_at);
-
--- Retail (árukereső) lookups are cached per normalized item, not per
--- listing: many listings share one normalized_key, and retail prices
--- barely move hour to hour, so there's no reason to re-search for every
--- re-scrape of every listing.
-CREATE TABLE IF NOT EXISTS retail_prices (
-    normalized_key TEXT PRIMARY KEY,
-    product_title TEXT NOT NULL,
-    price REAL NOT NULL,
-    currency TEXT NOT NULL,
-    url TEXT NOT NULL,
-    match_confidence REAL NOT NULL,
-    cached_at TEXT NOT NULL
-);
 """
 
 # Bump whenever _SCHEMA changes a table's shape in a way `CREATE TABLE IF
@@ -78,7 +60,7 @@ CREATE TABLE IF NOT EXISTS retail_prices (
 # SQLite's ALTER TABLE can't do directly. `_migrate` rebuilds only the
 # specific tables that need it; a brand-new database is created at the
 # current shape by `_SCHEMA` above and never touches `_migrate` at all.
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -87,28 +69,34 @@ def _migrate(conn: sqlite3.Connection) -> None:
         return
 
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(deals)")}
-    if "basis" not in columns:
-        # Pre-dates the retail-comparison feature: market_reference_price
-        # and discount_fraction were NOT NULL, which ALTER TABLE ADD
-        # COLUMN can't retrofit around — rebuild the table instead.
-        # Every existing row was scored by used-median (the only
-        # comparison that existed then), so backfilling basis is exact,
-        # not a guess.
+    if "basis" in columns:
+        # Retail (árukereső.hu) comparison, and the `basis` column that
+        # distinguished it from used-median, have been removed entirely —
+        # árukereső.hu sits behind a Cloudflare JS challenge no plain HTTP
+        # scraper can pass (confirmed directly: a fetch gets a "Just a
+        # moment..." challenge page, not product markup), so it never
+        # worked as a real comparison source. Rebuild `deals` back to
+        # used-median-only shape. Retail-basis rows have NULL
+        # market_reference_price/discount_fraction (there's no sound value
+        # to backfill them with) and represented a comparison method that
+        # no longer exists, so they're dropped rather than migrated.
         conn.execute("ALTER TABLE deals RENAME TO deals_old")
-        conn.executescript(_SCHEMA)  # recreates `deals` (and any other new table) at the current shape
+        conn.executescript(_SCHEMA)  # recreates `deals` at the current shape
         conn.execute(
             """
             INSERT INTO deals (listing_id, title, url, price, currency, location,
-                                basis, market_reference_price, discount_fraction, sample_size,
+                                market_reference_price, discount_fraction, sample_size,
                                 detected_at, source_label)
             SELECT listing_id, title, url, price, currency, location,
-                   'used_median', market_reference_price, discount_fraction, sample_size,
+                   market_reference_price, discount_fraction, sample_size,
                    detected_at, source_label
             FROM deals_old
+            WHERE basis = 'used_median'
             """
         )
         conn.execute("DROP TABLE deals_old")
 
+    conn.execute("DROP TABLE IF EXISTS retail_prices")  # the retail-price cache, no longer used
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
 
@@ -178,11 +166,10 @@ def record_deal(conn: sqlite3.Connection, deal: Deal, *, source_label: str | Non
         cur.execute(
             """
             INSERT INTO deals
-                (listing_id, title, url, price, currency, location, basis,
+                (listing_id, title, url, price, currency, location,
                  market_reference_price, discount_fraction, sample_size,
-                 retail_reference_price, retail_discount_fraction, retail_match_confidence,
                  detected_at, source_label)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 listing.listing_id,
@@ -191,13 +178,9 @@ def record_deal(conn: sqlite3.Connection, deal: Deal, *, source_label: str | Non
                 listing.price,
                 listing.currency,
                 listing.location,
-                deal.basis,
                 deal.market_reference_price,
                 deal.discount_fraction,
                 deal.sample_size,
-                deal.retail_reference_price,
-                deal.retail_discount_fraction,
-                deal.retail_match_confidence,
                 listing.seen_at.isoformat(),
                 source_label,
             ),
@@ -214,11 +197,7 @@ def get_recent_deals(
 ) -> list[sqlite3.Row]:
     """The best current deals: one row per listing (its most recent
     detection within the window, so a re-scraped-but-still-underpriced
-    listing shows up once, not once per cycle). Ranked with used-median
-    deals first (the primary signal), by their own discount desc, then
-    retail-only deals after, by their retail discount desc — never
-    interleaved by raw number, since a 25% used-median discount and a 50%
-    retail discount aren't the same kind of signal.
+    listing shows up once, not once per cycle), ranked by discount desc.
 
     `max_listing_age_seconds`, when given, additionally requires the
     listing to have been freshly re-observed within that many seconds of
@@ -255,61 +234,13 @@ def get_recent_deals(
         """
         params.append(fresh_since)
     query += """
-        ORDER BY
-            CASE WHEN d.basis = 'used_median' THEN 0 ELSE 1 END ASC,
-            CASE WHEN d.basis = 'used_median' THEN d.discount_fraction ELSE d.retail_discount_fraction END DESC
+        ORDER BY d.discount_fraction DESC
         LIMIT ?
     """
     params.append(limit)
     with closing(conn.cursor()) as cur:
         cur.execute(query, params)
         return cur.fetchall()
-
-
-def get_cached_retail_price(conn: sqlite3.Connection, normalized_key: str, max_age_days: int) -> RetailPrice | None:
-    since = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
-    with closing(conn.cursor()) as cur:
-        cur.execute(
-            "SELECT * FROM retail_prices WHERE normalized_key = ? AND cached_at >= ?",
-            (normalized_key, since),
-        )
-        row = cur.fetchone()
-    if row is None:
-        return None
-    return RetailPrice(
-        product_title=row["product_title"],
-        price=row["price"],
-        currency=row["currency"],
-        url=row["url"],
-        match_confidence=row["match_confidence"],
-    )
-
-
-def cache_retail_price(conn: sqlite3.Connection, normalized_key: str, retail_price: RetailPrice) -> None:
-    with closing(conn.cursor()) as cur:
-        cur.execute(
-            """
-            INSERT INTO retail_prices (normalized_key, product_title, price, currency, url, match_confidence, cached_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(normalized_key) DO UPDATE SET
-                product_title = excluded.product_title,
-                price = excluded.price,
-                currency = excluded.currency,
-                url = excluded.url,
-                match_confidence = excluded.match_confidence,
-                cached_at = excluded.cached_at
-            """,
-            (
-                normalized_key,
-                retail_price.product_title,
-                retail_price.price,
-                retail_price.currency,
-                retail_price.url,
-                retail_price.match_confidence,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-    conn.commit()
 
 
 def has_been_notified(conn: sqlite3.Connection, listing_id: str, price: float) -> bool:

@@ -58,8 +58,14 @@ class Config:
     max_group_spread_ratio: float = field(default_factory=lambda: _env_float("HA_MAX_GROUP_SPREAD_RATIO", 3.0))
 
     # A listing is flagged as a deal when its price is at least this far
-    # below the item's rolling market reference price.
-    deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.20))
+    # below the item's rolling market reference price. Lowered from an
+    # earlier 0.20 -- with retail comparison gone (árukereső.hu sits behind
+    # a Cloudflare JS challenge no plain HTTP scraper can pass, confirmed
+    # by fetching it directly and getting a "Just a moment..." challenge
+    # page rather than any product markup), used-median is now the only
+    # signal, so it needs to actually surface a usable number of deals on
+    # its own rather than stay this conservative.
+    deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.15))
 
     # How many days of price history feed the rolling market reference.
     reference_window_days: int = field(default_factory=lambda: _env_int("HA_REFERENCE_WINDOW_DAYS", 90))
@@ -86,8 +92,14 @@ class Config:
     # it's fine to follow. 1 = only the first page (old behavior); each
     # additional page is one more request per category per cycle, so
     # weigh this against how many categories are configured and how
-    # tight HA_POLL_INTERVAL_SECONDS is.
-    max_pages_per_category: int = field(default_factory=lambda: _env_int("HA_MAX_PAGES_PER_CATEGORY", 3))
+    # tight HA_POLL_INTERVAL_SECONDS is. Raised from an earlier 3: with
+    # used-median as the only comparison now (see HA_DEAL_THRESHOLD),
+    # deeper coverage per category is the direct lever for finding more
+    # duplicate listings to compare against -- pagination already stops
+    # early on its own (see pipeline.py's wrap-around handling) for any
+    # category smaller than this, so raising the cap only costs extra
+    # requests on categories actually deep enough to use them.
+    max_pages_per_category: int = field(default_factory=lambda: _env_int("HA_MAX_PAGES_PER_CATEGORY", 6))
 
     telegram_bot_token: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_BOT_TOKEN") or None)
     telegram_chat_id: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_CHAT_ID") or None)
@@ -103,45 +115,6 @@ class Config:
     # How far back the dashboard looks for deals, and how many it lists.
     deals_list_window_days: int = field(default_factory=lambda: _env_int("HA_DEALS_LIST_WINDOW_DAYS", 14))
     deals_list_limit: int = field(default_factory=lambda: _env_int("HA_DEALS_LIST_LIMIT", 200))
-
-    # Retail (árukereső.hu) comparison — secondary to the used-median
-    # comparison above. Used-median stays the PRIMARY signal: a listing is
-    # only evaluated against retail when there either isn't enough used-
-    # listing history yet to trust a used-median reference, or the used-
-    # median discount didn't clear its own threshold. Because almost any
-    # used item is *somewhat* cheaper than a new one — that alone means
-    # nothing — this threshold defaults much higher than the used-median
-    # one, so only a genuinely exceptional price relative to retail
-    # qualifies.
-    retail_enabled: bool = field(default_factory=lambda: os.environ.get("HA_RETAIL_ENABLED", "true").lower() != "false")
-    retail_deal_threshold: float = field(default_factory=lambda: _env_float("HA_RETAIL_DEAL_THRESHOLD", 0.45))
-
-    # A retail search result is only trusted as "the same product" above
-    # this confidence (see retail/matcher.py) — below it, no retail
-    # comparison is made for that listing rather than risk comparing
-    # against the wrong product's price.
-    retail_min_match_confidence: float = field(
-        default_factory=lambda: _env_float("HA_RETAIL_MIN_MATCH_CONFIDENCE", 0.6)
-    )
-
-    # Retail prices barely move hour to hour, so they're cached per
-    # normalized item and only refetched after this many days.
-    retail_cache_days: int = field(default_factory=lambda: _env_int("HA_RETAIL_CACHE_DAYS", 7))
-
-    # Hard cap on retail lookups per scrape cycle — a lookup is a real
-    # request to a site this bot doesn't own, and doing one per listing
-    # (there can be hundreds per cycle) would be both slow and impolite.
-    # Coverage builds up gradually across cycles instead of all at once.
-    retail_max_lookups_per_cycle: int = field(
-        default_factory=lambda: _env_int("HA_RETAIL_MAX_LOOKUPS_PER_CYCLE", 15)
-    )
-
-    retail_request_timeout_seconds: float = field(
-        default_factory=lambda: _env_float("HA_RETAIL_REQUEST_TIMEOUT", 15.0)
-    )
-    retail_request_delay_seconds: float = field(
-        default_factory=lambda: _env_float("HA_RETAIL_REQUEST_DELAY", 2.0)
-    )
 
     def validate(self) -> None:
         if not self.search_urls:

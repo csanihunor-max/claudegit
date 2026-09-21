@@ -22,20 +22,9 @@ def _listing(listing_id: str, price: float) -> Listing:
 def _deal(listing_id: str, price: float, reference: float) -> Deal:
     return Deal(
         listing=_listing(listing_id, price),
-        basis="used_median",
         market_reference_price=reference,
         discount_fraction=(reference - price) / reference,
         sample_size=3,
-    )
-
-
-def _retail_only_deal(listing_id: str, price: float, retail_reference: float) -> Deal:
-    return Deal(
-        listing=_listing(listing_id, price),
-        basis="retail",
-        retail_reference_price=retail_reference,
-        retail_discount_fraction=(retail_reference - price) / retail_reference,
-        retail_match_confidence=0.9,
     )
 
 
@@ -93,18 +82,10 @@ def test_healthz(tmp_path):
     assert response.get_json() == {"status": "ok"}
 
 
-def test_dashboard_shows_secondhand_margin_when_available(tmp_path):
+def test_dashboard_shows_discount(tmp_path):
     client = _make_client(tmp_path, [_deal("1", price=80_000, reference=100_000)])
     body = client.get("/").get_data(as_text=True)
-    assert "Margin vs secondhand" in body
     assert "20%" in body
-    assert "not enough resale history yet" not in body
-
-
-def test_dashboard_shows_missing_secondhand_history_for_retail_only_deal(tmp_path):
-    client = _make_client(tmp_path, [_retail_only_deal("1", price=50_000, retail_reference=100_000)])
-    body = client.get("/").get_data(as_text=True)
-    assert "not enough resale history yet" in body
 
 
 def test_refresh_runs_pipeline_and_redirects(tmp_path, monkeypatch):

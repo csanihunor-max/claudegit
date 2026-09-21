@@ -119,6 +119,21 @@ widened. Two defenses now, addressing this from both ends:
   this ratio widened: widening it enough to matter would let that exact
   false positive back in.
 
+**A third, independent check** catches what neither of the above does:
+titles specific-looking enough to pass both (unique enough not to be
+flagged as generic, and with a comparable group whose prices happen to
+agree closely enough), but still wrong. Real examples from one live
+cycle: "Samsung Monitor" at 90.9% off (11,000 → 1,000 HUF — a reference
+price absurdly low for any monitor, meaning two completely different
+unmodeled monitors got treated as the same product purely because
+neither listing named one), "Nintendo Switch OLED" at 60% off, "Eladó
+blu-ray filmek" ("blu-ray movies for sale") at 64.7% off. A genuinely-
+priced used item essentially never sells at under half its own recent
+resale median — when the math says otherwise, a bad title match is far
+more likely than an extraordinary bargain. `HA_MAX_PLAUSIBLE_DISCOUNT`
+(default 0.5) rejects any computed discount at or above that outright,
+regardless of how clean the rest of the match looks.
+
 ### Retail (árukereső.hu) comparison was tried and dropped
 
 An earlier version also compared listings against the current lowest new

@@ -32,6 +32,14 @@ def evaluate(listing: Listing, recent_prices: list[float], config: Config) -> De
     discount = (reference - listing.price) / reference
     if discount < config.deal_discount_threshold:
         return None
+    if discount >= config.max_plausible_discount_fraction:
+        # A real, genuinely-priced used item essentially never sells at
+        # less than half its own recent resale median -- when the math
+        # says otherwise, a bad title match or a data entry error in one
+        # of the listings is far more likely than an extraordinary
+        # bargain. See config.py's max_plausible_discount_fraction for
+        # the real examples this is built from.
+        return None
 
     return Deal(
         listing=listing,

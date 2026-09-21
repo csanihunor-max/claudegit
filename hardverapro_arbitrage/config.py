@@ -74,6 +74,23 @@ class Config:
     # up here will be a modest, real markdown rather than a standout deal.
     deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.05))
 
+    # A discount at or above this is treated as implausible rather than a
+    # great find, and rejected outright -- real examples from a single
+    # live cycle: "Samsung Monitor" at 90.9% off (11,000 -> 1,000 HUF, a
+    # reference price absurdly low for any monitor, meaning two
+    # completely different unnamed/unmodeled monitors got treated as the
+    # same product), "Nintendo Switch OLED" at 60%, "Eladó blu-ray
+    # filmek" ("blu-ray movies for sale") at 64.7% -- a generic-enough
+    # title that whatever it matched against wasn't really the same
+    # product either. A real, genuinely-priced used item essentially
+    # never sells at less than half its own recent resale median; when
+    # the math says otherwise, the far more likely explanation is a bad
+    # title match or a data entry error in one of the listings, not an
+    # extraordinary bargain.
+    max_plausible_discount_fraction: float = field(
+        default_factory=lambda: _env_float("HA_MAX_PLAUSIBLE_DISCOUNT", 0.5)
+    )
+
     # How many days of price history feed the rolling market reference.
     reference_window_days: int = field(default_factory=lambda: _env_int("HA_REFERENCE_WINDOW_DAYS", 90))
 

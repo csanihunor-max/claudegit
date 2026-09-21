@@ -47,9 +47,13 @@ so it's compliant by default — don't lower that below 1 second.
 item — the **median of all other recent listings for the same normalized
 item title**, from its own price-history database. A listing is flagged
 as a deal once it's priced `HA_DEAL_THRESHOLD` (default 20%) or more below
-that median, and only once at least `HA_MIN_SAMPLES` (default 3) other
+that median, and only once at least `HA_MIN_SAMPLES` (default 2) other
 listings of that item have been seen — otherwise there's nothing to
-compare against.
+compare against. Checked against real collected data: most duplicate
+groups only ever reach 2 other listings, so an earlier default of 3
+silently discarded most of them rather than reflecting real caution — 2
+is the floor that still means something (a median of 1 other listing
+isn't really a "market").
 
 Titles are normalized (`scraper/normalize.py`) by lowercasing, stripping
 accents/punctuation, and removing common Hungarian marketplace filler

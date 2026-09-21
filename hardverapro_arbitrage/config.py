@@ -37,9 +37,15 @@ class Config:
     # How often to run a full scrape cycle.
     poll_interval_seconds: int = field(default_factory=lambda: _env_int("HA_POLL_INTERVAL_SECONDS", 3600))
 
-    # Minimum number of historical price points for an item before we trust
-    # the computed market reference enough to flag deals against it.
-    min_samples_for_reference: int = field(default_factory=lambda: _env_int("HA_MIN_SAMPLES", 3))
+    # Minimum number of OTHER listings of the same item before we trust
+    # the computed market reference enough to flag deals against it (a
+    # median of 1 other listing isn't really a "market" — it's just
+    # "cheaper than one specific competitor", too easy for a single
+    # oddly-priced listing to skew). 2 is the floor that still means
+    # something; checked against real collected data, most duplicate
+    # groups only ever reach 2 other listings, so requiring 3 silently
+    # discarded most of them rather than reflecting genuine caution.
+    min_samples_for_reference: int = field(default_factory=lambda: _env_int("HA_MIN_SAMPLES", 2))
 
     # A listing is flagged as a deal when its price is at least this far
     # below the item's rolling market reference price.

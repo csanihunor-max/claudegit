@@ -94,17 +94,30 @@ deep per category instead of ~300) specifically to raise the odds of a
 duplicate showing up at all in these sparse categories.
 
 The opposite failure mode also happens — a title too *generic* rather
-than too specific — and it produced a real false positive: "PS4
-játékok" ("PS4 games") normalizes identically across listings that are
-actually bundles of wildly different game counts, 3.6-4x apart in
-price, not one product independently priced by different sellers (a
-genuine case, like the ROG Ally X deal above, sits under 1.5x). A group
-whose prices disagree by more than `HA_MAX_GROUP_SPREAD_RATIO` (default
-3.0, max/min) isn't trusted as a market reference at all, even with
-enough samples — checked against exactly this real case and the
-genuine ones, not picked arbitrarily. This is why the threshold above
-was lowered rather than the spread ratio widened: widening it enough to
-matter would let that exact false positive back in.
+than too specific. "PS4 játékok" ("PS4 games") normalizes identically
+across listings that are actually bundles of wildly different game
+counts, each seller's own lot, not one product independently priced —
+and it kept recurring: "PC játékok", "Xbox one játékok" and "Nintendo
+Switch Játékok" all produced the same false shape after categories were
+widened. Two defenses now, addressing this from both ends:
+
+- **Excluded outright** (`scraper/normalize.py`'s `is_bundle_or_generic_key`):
+  a key that's nothing more specific than a platform name plus the bare
+  word "games" (`ps4 jatekok`, `xbox one jatekok`, ...), or that contains
+  an explicit lot/bundle word ("csomag", "gyűjtemény", ...), is never
+  evaluated as a deal candidate at all — not just excluded from
+  qualifying itself, but never treated as a valid comparable for anyone
+  else sharing that key either. This is the actual fix, targeting the
+  real cause instead of reacting to its symptoms; the checks below are a
+  fallback for whatever this doesn't yet know to name.
+- **Price-spread sanity check**: even for a key that isn't recognized as
+  generic, a group whose prices disagree by more than
+  `HA_MAX_GROUP_SPREAD_RATIO` (default 3.0, max/min) isn't trusted as a
+  market reference — checked against the original "PS4 játékok" case
+  (3.6-4x apart) versus a genuine one like the ROG Ally X deal above
+  (under 1.5x). This is why `HA_DEAL_THRESHOLD` was lowered rather than
+  this ratio widened: widening it enough to matter would let that exact
+  false positive back in.
 
 ### Retail (árukereső.hu) comparison was tried and dropped
 

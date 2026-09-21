@@ -10,6 +10,7 @@ from .config import Config
 from .models import Deal
 from .notify.base import Notifier
 from .scraper.client import FetchError, HardveraproClient
+from .scraper.normalize import is_bundle_or_generic_key
 from .scraper.parser import parse_search_results
 from .storage import db
 
@@ -73,6 +74,17 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
 
             for listing in listings:
                 db.record_observation(conn, listing)
+
+                # A bundle/lot listing, or one too generic to be a single
+                # comparable product (see normalize.py's
+                # is_bundle_or_generic_key), is skipped entirely here --
+                # not just excluded from qualifying as a deal itself, but
+                # never evaluated at all, so it also never becomes a
+                # false "comparable" for some other listing sharing the
+                # same key. Still recorded as an observation above, for
+                # historical completeness.
+                if is_bundle_or_generic_key(listing.normalized_key):
+                    continue
 
                 recent_prices = db.get_recent_prices(
                     conn, listing.normalized_key, config.reference_window_days, exclude_listing_id=listing.listing_id

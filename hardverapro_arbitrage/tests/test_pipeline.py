@@ -19,6 +19,29 @@ def _listing(listing_id: str, price: float, title: str) -> Listing:
     )
 
 
+def test_bundle_or_generic_titles_never_flagged_as_deals(monkeypatch):
+    # Real false positive this guards against: "PS4 játékok" ("PS4
+    # games") listings are each a seller's own differently-sized bundle,
+    # not one product -- even a huge apparent price gap here must never
+    # produce a deal, and must never contaminate anyone else's reference
+    # price either.
+    listings = [
+        _listing("1", 3_000, "PS4 játékok"),
+        _listing("2", 4_500, "PS4 játékok"),
+        _listing("3", 12_345, "PS4 játékok"),
+    ]
+    monkeypatch.setattr(pipeline_module, "parse_search_results", lambda html: listings)
+
+    config = Config(search_urls=["https://example.com"], max_pages_per_category=1, deal_discount_threshold=0.01)
+    conn = db.connect(":memory:")
+    deals = pipeline_module.run_once(config, conn, _FakeHardveraproClient(), [ConsoleNotifier()])
+
+    assert deals == []
+    # still recorded for historical completeness, just never evaluated
+    cur = conn.execute("SELECT COUNT(*) FROM observations")
+    assert cur.fetchone()[0] == 3
+
+
 def test_offset_url_builds_correctly():
     assert pipeline_module._offset_url("https://x.hu/index.html", 0) == "https://x.hu/index.html"
     assert pipeline_module._offset_url("https://x.hu/index.html", 100) == "https://x.hu/index.html?offset=100"

@@ -45,6 +45,9 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
             deal = evaluate(listing, recent_prices, config)
             if deal is None:
                 continue
+
+            db.record_deal(conn, deal)  # feeds the dashboard, independent of notification dedup
+
             if db.has_been_notified(conn, listing.listing_id, listing.price):
                 continue
 

@@ -1,4 +1,4 @@
-"""Entry point: `python -m hardverapro_arbitrage [--once]`."""
+"""Entry point: `python -m hardverapro_arbitrage [--once | --serve]`."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,13 @@ def _build_notifiers(config: Config) -> list[Notifier]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Hardverapro arbitrage scraper")
-    parser.add_argument("--once", action="store_true", help="run a single scrape cycle and exit")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--once", action="store_true", help="run a single scrape cycle and exit")
+    mode.add_argument(
+        "--serve",
+        action="store_true",
+        help="run the read-only web dashboard instead of scraping (see README for exposing it remotely)",
+    )
     parser.add_argument("--verbose", action="store_true", help="enable debug logging")
     args = parser.parse_args(argv)
 
@@ -34,6 +40,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     config = Config()
+
+    if args.serve:
+        # The dashboard only reads existing data — it doesn't need a
+        # configured search URL to start, only to have anything to show.
+        from .web import run as run_web
+
+        run_web(config)
+        return 0
+
     try:
         config.validate()
     except ValueError as exc:

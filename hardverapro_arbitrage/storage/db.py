@@ -1,6 +1,7 @@
-"""SQLite persistence: every scraped price point, and which deals we've
-already alerted on (so the hourly loop doesn't re-notify the same listing
-at the same price every single cycle).
+"""SQLite persistence: every scraped price point, every deal we've ever
+flagged (for the dashboard), and which deals we've already alerted on (so
+the hourly loop doesn't re-notify the same listing at the same price every
+single cycle).
 """
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from ..models import Listing
+from ..models import Deal, Listing
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -31,11 +32,31 @@ CREATE TABLE IF NOT EXISTS notified_deals (
     notified_at TEXT NOT NULL,
     PRIMARY KEY (listing_id, price)
 );
+
+-- Every time evaluate() flags a listing as a deal, regardless of whether
+-- it had already been notified on — this is what the web dashboard reads,
+-- independent of notification history.
+CREATE TABLE IF NOT EXISTS deals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    listing_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    price REAL NOT NULL,
+    currency TEXT NOT NULL,
+    location TEXT,
+    market_reference_price REAL NOT NULL,
+    discount_fraction REAL NOT NULL,
+    sample_size INTEGER NOT NULL,
+    detected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deals_listing ON deals (listing_id, detected_at);
+CREATE INDEX IF NOT EXISTS idx_deals_detected_at ON deals (detected_at);
 """
 
 
 def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row  # supports both row["col"] and row[0]
     conn.executescript(_SCHEMA)
     conn.commit()
     return conn
@@ -90,6 +111,58 @@ def get_recent_prices(
             (normalized_key, since, exclude_listing_id, exclude_listing_id),
         )
         return [row[0] for row in cur.fetchall()]
+
+
+def record_deal(conn: sqlite3.Connection, deal: Deal) -> None:
+    listing = deal.listing
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            """
+            INSERT INTO deals
+                (listing_id, title, url, price, currency, location,
+                 market_reference_price, discount_fraction, sample_size, detected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                listing.listing_id,
+                listing.title,
+                listing.url,
+                listing.price,
+                listing.currency,
+                listing.location,
+                deal.market_reference_price,
+                deal.discount_fraction,
+                deal.sample_size,
+                listing.seen_at.isoformat(),
+            ),
+        )
+    conn.commit()
+
+
+def get_recent_deals(conn: sqlite3.Connection, window_days: int, limit: int) -> list[sqlite3.Row]:
+    """The best current deals: one row per listing (its most recent
+    detection within the window, so a re-scraped-but-still-underpriced
+    listing shows up once, not once per cycle), ranked biggest-discount
+    first and, for ties, biggest absolute savings first.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            """
+            SELECT d.* FROM deals d
+            INNER JOIN (
+                SELECT listing_id, MAX(detected_at) AS latest_detected_at
+                FROM deals
+                WHERE detected_at >= ?
+                GROUP BY listing_id
+            ) latest
+                ON d.listing_id = latest.listing_id AND d.detected_at = latest.latest_detected_at
+            ORDER BY d.discount_fraction DESC, (d.market_reference_price - d.price) DESC
+            LIMIT ?
+            """,
+            (since, limit),
+        )
+        return cur.fetchall()
 
 
 def has_been_notified(conn: sqlite3.Connection, listing_id: str, price: float) -> bool:

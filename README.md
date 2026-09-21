@@ -66,6 +66,31 @@ Deals are always logged to the console. Set `HA_TELEGRAM_BOT_TOKEN` and
 (listing, price) pair is only ever notified once — a re-scrape at the
 same price won't spam you again, but a further price drop will.
 
+## Remote dashboard
+
+Run the scraper and the dashboard as two separate long-running processes
+sharing the same SQLite file:
+
+```bash
+python -m hardverapro_arbitrage           # scrape loop, hourly
+python -m hardverapro_arbitrage --serve   # web dashboard, separate process
+```
+
+The dashboard (`/`) lists currently-flagged deals **ranked biggest relative
+bargain first** — % below the item's own market reference price, ties
+broken by absolute savings. There's also `/api/deals` (JSON, same ranking)
+and `/healthz`. It's read-only and has no login of its own.
+
+By default it binds `0.0.0.0:8765`, i.e. every network interface on the
+machine running it — that's enough to reach it from another device on the
+**same** network. To check deals from your phone while away from home, put
+something in front of it that survives the open internet: a WireGuard/
+Tailscale tunnel back to that machine (bind to its Tailscale IP, or leave
+`0.0.0.0` and just don't forward the port on your router), an SSH `-L`
+port-forward, or a reverse proxy that adds auth. Don't port-forward
+`HA_WEB_PORT` straight through your router — there's no authentication on
+this server.
+
 ## Configuration
 
 All of it lives in environment variables, read by

@@ -66,6 +66,18 @@ class Config:
     telegram_bot_token: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_BOT_TOKEN") or None)
     telegram_chat_id: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_CHAT_ID") or None)
 
+    # Web dashboard (`python -m hardverapro_arbitrage serve`). Bound to all
+    # interfaces by default so it's reachable from other devices on your
+    # network/VPN, not just localhost on the machine running it — put it
+    # behind a tunnel (Tailscale, SSH -L, a reverse proxy) for phone access
+    # away from home, don't expose it to the open internet unauthenticated.
+    web_host: str = field(default_factory=lambda: os.environ.get("HA_WEB_HOST", "0.0.0.0"))
+    web_port: int = field(default_factory=lambda: _env_int("HA_WEB_PORT", 8765))
+
+    # How far back the dashboard looks for deals, and how many it lists.
+    deals_list_window_days: int = field(default_factory=lambda: _env_int("HA_DEALS_LIST_WINDOW_DAYS", 14))
+    deals_list_limit: int = field(default_factory=lambda: _env_int("HA_DEALS_LIST_LIMIT", 200))
+
     def validate(self) -> None:
         if not self.search_urls:
             raise ValueError(

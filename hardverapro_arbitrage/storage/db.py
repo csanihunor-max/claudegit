@@ -72,11 +72,51 @@ CREATE TABLE IF NOT EXISTS retail_prices (
 );
 """
 
+# Bump whenever _SCHEMA changes a table's shape in a way `CREATE TABLE IF
+# NOT EXISTS` can't apply to an existing database on its own — a new
+# column, or (as here) a NOT NULL constraint that needs relaxing, which
+# SQLite's ALTER TABLE can't do directly. `_migrate` rebuilds only the
+# specific tables that need it; a brand-new database is created at the
+# current shape by `_SCHEMA` above and never touches `_migrate` at all.
+_SCHEMA_VERSION = 2
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    current = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current >= _SCHEMA_VERSION:
+        return
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(deals)")}
+    if "basis" not in columns:
+        # Pre-dates the retail-comparison feature: market_reference_price
+        # and discount_fraction were NOT NULL, which ALTER TABLE ADD
+        # COLUMN can't retrofit around — rebuild the table instead.
+        # Every existing row was scored by used-median (the only
+        # comparison that existed then), so backfilling basis is exact,
+        # not a guess.
+        conn.execute("ALTER TABLE deals RENAME TO deals_old")
+        conn.executescript(_SCHEMA)  # recreates `deals` (and any other new table) at the current shape
+        conn.execute(
+            """
+            INSERT INTO deals (listing_id, title, url, price, currency, location,
+                                basis, market_reference_price, discount_fraction, sample_size,
+                                detected_at, source_label)
+            SELECT listing_id, title, url, price, currency, location,
+                   'used_median', market_reference_price, discount_fraction, sample_size,
+                   detected_at, source_label
+            FROM deals_old
+            """
+        )
+        conn.execute("DROP TABLE deals_old")
+
+    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
 
 def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row  # supports both row["col"] and row[0]
-    conn.executescript(_SCHEMA)
+    conn.executescript(_SCHEMA)  # no-ops on tables that already exist, whatever shape they're in
+    _migrate(conn)
     conn.commit()
     return conn
 

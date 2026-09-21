@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from hardverapro_arbitrage.models import Deal, Listing, RetailPrice
@@ -169,3 +170,55 @@ def test_retail_price_cache_expires():
             ),
         )
     assert db.get_cached_retail_price(conn, "k", max_age_days=7) is None
+
+
+def test_migrates_pre_retail_schema_without_data_loss(tmp_path):
+    # The exact `deals` shape from before basis/retail columns existed:
+    # market_reference_price and discount_fraction were NOT NULL, which
+    # `CREATE TABLE IF NOT EXISTS` can't retrofit around on its own.
+    db_path = str(tmp_path / "old.sqlite3")
+    raw = sqlite3.connect(db_path)
+    raw.executescript(
+        """
+        CREATE TABLE deals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            listing_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            price REAL NOT NULL,
+            currency TEXT NOT NULL,
+            location TEXT,
+            market_reference_price REAL NOT NULL,
+            discount_fraction REAL NOT NULL,
+            sample_size INTEGER NOT NULL,
+            detected_at TEXT NOT NULL,
+            source_label TEXT
+        );
+        """
+    )
+    raw.execute(
+        "INSERT INTO deals (listing_id, title, url, price, currency, location, "
+        "market_reference_price, discount_fraction, sample_size, detected_at, source_label) "
+        "VALUES ('1', 'Old Deal', 'https://x/1', 80000, 'HUF', 'Budapest', 100000, 0.2, 3, '2026-01-01T00:00:00+00:00', 'Phones')"
+    )
+    raw.commit()
+    raw.close()
+
+    conn = db.connect(db_path)  # must not raise, and must migrate in place
+
+    rows = db.get_recent_deals(conn, window_days=3650, limit=10)
+    assert len(rows) == 1
+    assert rows[0]["basis"] == "used_median"  # backfilled, the only comparison that existed then
+    assert rows[0]["market_reference_price"] == 100000
+    assert rows[0]["source_label"] == "Phones"
+
+    # a retail-only deal (NULL used-median fields) must now be insertable
+    # -- this is exactly what crashed before the migration existed
+    retail_deal = Deal(
+        listing=_listing("2", 50_000),
+        basis="retail",
+        retail_reference_price=100_000,
+        retail_discount_fraction=0.5,
+        retail_match_confidence=0.9,
+    )
+    db.record_deal(conn, retail_deal)  # must not raise

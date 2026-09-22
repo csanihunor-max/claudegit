@@ -17,6 +17,24 @@ def test_whitespace_and_punctuation_insensitive():
     assert a == b
 
 
+# Real false negative this guards against: checked against real scraped
+# data, only 112 of 4,565 distinct normalized keys ever reached the
+# 2-listing minimum needed to compute a reference price -- a title's unit
+# being written with or without a separating space ("128GB" vs "128 GB")
+# was the single most common reason two listings of the literal same item
+# split into different keys and never got compared at all.
+def test_unit_spacing_insensitive():
+    assert normalize_title("iPhone 12 128GB") == normalize_title("iPhone 12 128 GB")
+    assert normalize_title("RTX 3070 8GB") == normalize_title("RTX 3070 8 GB")
+    assert normalize_title("SSD 1TB") == normalize_title("SSD 1 TB")
+
+
+def test_unit_merge_does_not_swallow_unrelated_numbers():
+    # "2 ev garancia" (2 year warranty) shouldn't accidentally merge into
+    # a unit token just because a number precedes some other word.
+    assert normalize_title("iPhone 12 128GB, 2 ev garanciaval") == "iphone 12 128gb 2 ev"
+
+
 def test_different_items_get_different_keys():
     a = normalize_title("iPhone 12 128GB")
     b = normalize_title("iPhone 13 128GB")

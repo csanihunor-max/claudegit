@@ -67,7 +67,10 @@ _TEMPLATE = """
   {% if refresh_error %}<p class="meta" style="color:#e77">{{ refresh_error }}</p>{% endif %}
   <p class="meta">
     <b>Discount</b> — % below other resale listings of the same item on hardverapro.hu
-    itself. <b>Distance</b> — straight-line km from Budapest, best-effort from the
+    itself. <b>Samples</b> — how many other listings that reference price is based
+    on; 2-3 is the bare minimum and noisy (essentially just an average of a
+    couple of prices), treat those more skeptically than a double-digit count.
+    <b>Distance</b> — straight-line km from Budapest, best-effort from the
     listing's location text (a fixed lookup table of known towns, not a geocoding
     service — "—" means the location wasn't recognized). Last {{ window_days }} days,
     top {{ limit }}. Auto-refreshes every 5 min, or click Refresh for an immediate
@@ -97,6 +100,7 @@ _TEMPLATE = """
         <th><a href="{{ sort_links.price }}">Price{{ sort_arrows.price }}</a></th>
         <th>Reference</th>
         <th><a href="{{ sort_links.savings }}">Savings{{ sort_arrows.savings }}</a></th>
+        <th><a href="{{ sort_links.samples }}">Samples{{ sort_arrows.samples }}</a></th>
         <th>Location</th>
         <th><a href="{{ sort_links.distance }}">Distance{{ sort_arrows.distance }}</a></th>
         <th><a href="{{ sort_links.detected }}">Detected{{ sort_arrows.detected }}</a></th>
@@ -111,6 +115,7 @@ _TEMPLATE = """
         <td class="price">{{ "{:,.0f}".format(d.price) }} {{ d.currency }}</td>
         <td class="price">{{ "{:,.0f}".format(d.market_reference_price) }} {{ d.currency }}</td>
         <td class="price">{{ "{:,.0f}".format(d.market_reference_price - d.price) }} {{ d.currency }}</td>
+        <td class="price">{{ d.sample_size }}</td>
         <td>{{ d.location or "" }}</td>
         <td class="price">{% if d.distance_km is not none %}{{ "%.0f"|format(d.distance_km) }} km ({{ d.region }}){% else %}—{% endif %}</td>
         <td>{{ d.detected_at.split("T")[0] }}</td>
@@ -135,6 +140,7 @@ _SORT_KEYS: dict[str, tuple] = {
     "price": (lambda d: d["price"], "asc"),
     "category": (lambda d: (d["source_label"] or "").lower(), "asc"),
     "savings": (lambda d: d["savings"], "desc"),
+    "samples": (lambda d: d["sample_size"], "desc"),
     "detected": (lambda d: d["detected_at"], "desc"),
     "distance": (None, "asc"),  # special-cased in _sort_deals -- see below
 }

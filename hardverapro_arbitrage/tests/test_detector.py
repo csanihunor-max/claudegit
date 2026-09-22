@@ -72,8 +72,47 @@ def test_plausibility_cap_is_configurable():
     config = Config(
         search_urls=["https://example.com"], min_samples_for_reference=2,
         deal_discount_threshold=0.05, max_plausible_discount_fraction=0.3,
+        low_sample_discount_margin=0.0,
     )
     result = evaluate(_listing(75_000), recent_prices=[100_000, 100_000], config=config)  # 25% off, under the cap
     assert result is not None
     result = evaluate(_listing(65_000), recent_prices=[100_000, 100_000], config=config)  # 35% off, over the cap
     assert result is None
+
+
+# Real problem this whole margin exists to catch: checked against every
+# deal ever flagged in production, ALL of them had sample_size 2-4 -- a
+# median of 2 prices is just their average, with none of a real median's
+# robustness to one price being unusual. The flat threshold alone treated
+# that razor-thin coincidence exactly the same as a ten-listing consensus.
+def test_low_sample_size_requires_a_bigger_discount():
+    config = Config(
+        search_urls=["https://example.com"], min_samples_for_reference=2,
+        deal_discount_threshold=0.05, low_sample_discount_margin=0.10,
+    )
+    # sample_size=2 (the floor): required discount is 0.05 + 0.10/1 = 0.15
+    result = evaluate(_listing(87_000), recent_prices=[100_000, 100_000], config=config)  # 13% off
+    assert result is None
+    result = evaluate(_listing(84_000), recent_prices=[100_000, 100_000], config=config)  # 16% off
+    assert result is not None
+
+
+def test_low_sample_margin_shrinks_as_comparables_accumulate():
+    config = Config(
+        search_urls=["https://example.com"], min_samples_for_reference=2,
+        deal_discount_threshold=0.05, low_sample_discount_margin=0.10,
+    )
+    # sample_size=11: required discount is 0.05 + 0.10/10 = 0.06 -- far
+    # closer to the plain threshold than the 2-sample case above.
+    prices = [100_000] * 11
+    result = evaluate(_listing(93_000), recent_prices=prices, config=config)  # 7% off
+    assert result is not None
+
+
+def test_low_sample_margin_disabled_falls_back_to_flat_threshold():
+    config = Config(
+        search_urls=["https://example.com"], min_samples_for_reference=2,
+        deal_discount_threshold=0.05, low_sample_discount_margin=0.0,
+    )
+    result = evaluate(_listing(94_000), recent_prices=[100_000, 100_000], config=config)  # 6% off
+    assert result is not None

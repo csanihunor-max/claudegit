@@ -89,6 +89,31 @@ def test_dashboard_shows_discount(tmp_path):
     assert "20%" in body
 
 
+def test_dashboard_shows_sample_size(tmp_path):
+    # Confidence signal already computed by the detector but previously
+    # never surfaced -- a 2-sample "market reference" is just an average
+    # of two prices, and the user has no way to judge that from the
+    # dashboard alone without this.
+    client = _make_client(tmp_path, [_deal("1", price=80_000, reference=100_000)])
+    body = client.get("/").get_data(as_text=True)
+    assert ">3<" in body
+
+
+def test_sort_by_samples(tmp_path):
+    config = Config(search_urls=["https://example.com"], db_path=str(tmp_path / "test.sqlite3"))
+    conn = db.connect(config.db_path)
+    low = Deal(listing=_listing("low", 80_000), market_reference_price=100_000, discount_fraction=0.2, sample_size=2)
+    high = Deal(listing=_listing("high", 80_000), market_reference_price=100_000, discount_fraction=0.2, sample_size=9)
+    for deal in (low, high):
+        db.record_observation(conn, deal.listing)
+        db.record_deal(conn, deal)
+    conn.close()
+    client = create_app(config).test_client()
+
+    body = client.get("/?sort=samples").get_data(as_text=True)
+    assert body.index("Item high") < body.index("Item low")
+
+
 def test_sort_by_price_ascending_by_default(tmp_path):
     client = _make_client(
         tmp_path,

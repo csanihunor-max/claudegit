@@ -30,7 +30,19 @@ def evaluate(listing: Listing, recent_prices: list[float], config: Config) -> De
         return None
 
     discount = (reference - listing.price) / reference
-    if discount < config.deal_discount_threshold:
+
+    # A reference backed by only the bare minimum of comparables is just
+    # an average of 2-4 prices, not a real median -- far noisier than one
+    # backed by ten. Demand a bigger discount to trust it, decaying
+    # towards the plain threshold as more comparables accumulate. See
+    # config.py's low_sample_discount_margin for the real data this is
+    # built from (every deal ever flagged in production had sample_size
+    # 2-4, i.e. sat at exactly the noisiest point on this curve).
+    sample_size = len(recent_prices)
+    required_discount = config.deal_discount_threshold + config.low_sample_discount_margin / max(
+        sample_size - 1, 1
+    )
+    if discount < required_discount:
         return None
     if discount >= config.max_plausible_discount_fraction:
         # A real, genuinely-priced used item essentially never sells at

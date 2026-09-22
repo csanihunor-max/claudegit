@@ -74,6 +74,21 @@ class Config:
     # up here will be a modest, real markdown rather than a standout deal.
     deal_discount_threshold: float = field(default_factory=lambda: _env_float("HA_DEAL_THRESHOLD", 0.05))
 
+    # Extra required discount, on top of deal_discount_threshold, when a
+    # reference price is backed by only the bare minimum number of other
+    # listings -- shrinking towards 0 as more comparables accumulate. Real
+    # problem this catches: checked against every deal ever flagged in
+    # production, ALL of them were backed by only 2-4 comparables (a
+    # median of 2 prices is just their average -- no robustness at all,
+    # unlike a median of 10), yet a razor-thin 2-listing coincidence was
+    # trusted exactly as much as a well-established double-digit-sample
+    # market price. margin / (sample_size - 1): at the floor of 2 samples
+    # the full margin applies (deal_discount_threshold + 0.10 required);
+    # by ~10 samples it's added barely 1 percentage point.
+    low_sample_discount_margin: float = field(
+        default_factory=lambda: _env_float("HA_LOW_SAMPLE_MARGIN", 0.10)
+    )
+
     # A discount at or above this is treated as implausible rather than a
     # great find, and rejected outright -- real examples from a single
     # live cycle: "Samsung Monitor" at 90.9% off (11,000 -> 1,000 HUF, a

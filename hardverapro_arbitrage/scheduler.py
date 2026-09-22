@@ -30,6 +30,13 @@ def run_forever(config: Config, notifiers: list[Notifier]) -> None:
                     logger.exception("scrape cycle failed, will retry next interval")
 
                 elapsed = time.monotonic() - cycle_start
+                if elapsed > config.poll_interval_seconds:
+                    logger.warning(
+                        "scrape cycle took %.0fs, longer than HA_POLL_INTERVAL_SECONDS (%ds) -- "
+                        "running the next cycle back-to-back with no rest until this catches up "
+                        "(tracking fewer categories or raising the interval would fix it)",
+                        elapsed, config.poll_interval_seconds,
+                    )
                 sleep_for = max(0.0, config.poll_interval_seconds - elapsed)
                 time.sleep(sleep_for)
     finally:

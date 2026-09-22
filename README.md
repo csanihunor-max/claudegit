@@ -239,8 +239,12 @@ available.
 A **Refresh now** button runs one scrape cycle synchronously and reloads
 the page — real and immediate here, since this is a live Python process,
 not the static page the Artifact dashboard (next section) is. It blocks
-for roughly as long as one scrape cycle (a handful of seconds to under a
-minute), and needs `HA_SEARCH_URLS` set.
+for as long as one full scrape cycle takes, which scales with how many
+categories are configured — with the default 53-category list
+(`HA_MAX_PAGES_PER_CATEGORY` up to 6 pages each, `HA_REQUEST_DELAY` 2s
+between requests) that's several minutes, not seconds; a narrower
+`HA_SEARCH_URLS` finishes proportionally faster. Needs `HA_SEARCH_URLS`
+set (or left at its default).
 
 By default it binds `0.0.0.0:8765`, i.e. every network interface on the
 machine running it — that's enough to reach it from another device on the

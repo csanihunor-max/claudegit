@@ -42,6 +42,26 @@ def test_bundle_or_generic_titles_never_flagged_as_deals(monkeypatch):
     assert cur.fetchone()[0] == 3
 
 
+def test_digital_goods_never_flagged_as_deals(monkeypatch):
+    # Real problem this guards against: widening category coverage pulled
+    # subscription codes into otherwise-physical categories like "Xbox" --
+    # a "Game Pass Ultimate előfizetés" competing on price against actual
+    # consoles it has nothing in common with as a product.
+    listings = [
+        _listing("1", 3_000, "Game Pass Ultimate előfizetés 1 hónap"),
+        _listing("2", 3_500, "Game Pass Ultimate előfizetés 1 hónap"),
+    ]
+    monkeypatch.setattr(pipeline_module, "parse_search_results", lambda html: listings)
+
+    config = Config(search_urls=["https://example.com"], max_pages_per_category=1, deal_discount_threshold=0.01)
+    conn = db.connect(":memory:")
+    deals = pipeline_module.run_once(config, conn, _FakeHardveraproClient(), [ConsoleNotifier()])
+
+    assert deals == []
+    cur = conn.execute("SELECT COUNT(*) FROM observations")
+    assert cur.fetchone()[0] == 2
+
+
 def test_offset_url_builds_correctly():
     assert pipeline_module._offset_url("https://x.hu/index.html", 0) == "https://x.hu/index.html"
     assert pipeline_module._offset_url("https://x.hu/index.html", 100) == "https://x.hu/index.html?offset=100"

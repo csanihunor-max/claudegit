@@ -8,7 +8,7 @@ item's own recent second-hand market price.
 
 1. `pip install -r requirements.txt`
 2. `cp .env.example .env` — works as-is, pre-filled with every
-   hardverapro.hu electronics/computing category, 53 in total
+   hardverapro.hu electronics/computing category, 52 in total
    (`hardverapro_arbitrage/categories.py`'s `DEFAULT_SEARCH_URLS` — the
    two aren't linked automatically, so if you add/remove a category
    there, copy the change into `.env.example` too). Edit `HA_SEARCH_URLS`
@@ -150,17 +150,36 @@ different, actually-scrapable price source.
 ## Tracked categories
 
 Every hardverapro.hu electronics/computing browse category is tracked by
-default — 53 in total, spanning gaming handhelds/consoles, phones/
+default — 52 in total, spanning gaming handhelds/consoles, phones/
 tablets/wearables, laptops/desktops/servers, every PC component and
 peripheral, home theater/hifi, and photo/video
 (`hardverapro_arbitrage/categories.py`'s `DEFAULT_SEARCH_URLS`, checked
 against a live fetch one by one before being added). Deliberately left
 out: each department's own "boltok_szervizek" (shops/services storefront
 pages, not individual product listings), "domain" (domain names, not a
-physical product), and the whole "egyeb" (misc) department — cars,
-fashion, home goods, coupons, services — since that's explicitly the
-site's general-classifieds overflow, not "hardver" at all, and this bot's
-comparison logic is built for electronics specifically.
+physical product), "pc_szerver/szoftver" (PC software — almost entirely
+license keys/digital codes, see the digital-goods filter below), and the
+whole "egyeb" (misc) department — cars, fashion, home goods, coupons,
+services — since that's explicitly the site's general-classifieds
+overflow, not "hardver" at all, and this bot's comparison logic is built
+for electronics specifically.
+
+### Digital goods are excluded, not just physical items
+
+Widening category coverage surfaced a category error, not just noise: a
+"Game Pass Ultimate előfizetés" (subscription code) or a game key listed
+under "Xbox" or "PlayStation" sits right next to actual physical
+consoles, but it isn't a comparable product at all — a digital code has
+no real used-market price (resold indefinitely at whatever the reseller
+sets, not worn down by use like a physical item), there's nothing to
+physically pick up (the distance-to-Budapest feature below is meaningless
+for one), and letting it compete on "discount %" like a real used item
+just crowds out genuinely comparable physical listings. `scraper/
+normalize.py`'s `is_digital_good` checks for the telltale phrases
+("előfizetés", "Game Pass", "azonnali kézbesítés" / instant delivery, a
+handful of others) and excludes a match entirely, the same way
+`is_bundle_or_generic_key` does for bundle titles — never evaluated as a
+deal, and never treated as a valid comparable for anyone else either.
 
 ## Distance from Budapest / Pest county
 
@@ -240,7 +259,7 @@ A **Refresh now** button runs one scrape cycle synchronously and reloads
 the page — real and immediate here, since this is a live Python process,
 not the static page the Artifact dashboard (next section) is. It blocks
 for as long as one full scrape cycle takes, which scales with how many
-categories are configured — with the default 53-category list
+categories are configured — with the default 52-category list
 (`HA_MAX_PAGES_PER_CATEGORY` up to 6 pages each, `HA_REQUEST_DELAY` 2s
 between requests) that's several minutes, not seconds; a narrower
 `HA_SEARCH_URLS` finishes proportionally faster. Needs `HA_SEARCH_URLS`

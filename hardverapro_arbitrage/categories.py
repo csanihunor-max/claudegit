@@ -7,14 +7,18 @@ into the hourly Routine's own prompt text, which drifted from this file).
 Every electronics/computing department's browse category is tracked
 (hardver, mobil, notebook, pc_szerver, szoftver_jatek, hazimozi_hifi,
 foto_video) except each department's own "boltok_szervizek" (shops/
-services storefronts, not individual product listings) and
-"pc_szerver/domain" (domain names for sale, not a physical product with
-a meaningful resale/retail comparison). hardverapro.hu's "egyeb" (misc)
-department -- cars, fashion, home goods, coupons, services -- is
-deliberately NOT tracked: it's explicitly the site's general-classifieds
-overflow, not part of "hardver" at all, and this bot's whole comparison
-logic (title normalization, used-median pricing) is built for
-electronics, not arbitrary goods.
+services storefronts, not individual product listings), "pc_szerver/
+domain" (domain names for sale, not a physical product with a meaningful
+resale/retail comparison), and "pc_szerver/szoftver" (PC software --
+almost entirely license keys/digital codes, the same non-physical-good
+problem as individual digital listings within the gaming categories, see
+scraper/normalize.py's is_digital_good, except here it's ~the whole
+category rather than a few listings within an otherwise-physical one).
+hardverapro.hu's "egyeb" (misc) department -- cars, fashion, home goods,
+coupons, services -- is deliberately NOT tracked: it's explicitly the
+site's general-classifieds overflow, not part of "hardver" at all, and
+this bot's whole comparison logic (title normalization, used-median
+pricing) is built for electronics, not arbitrary goods.
 """
 from __future__ import annotations
 
@@ -41,7 +45,6 @@ _LABELS: dict[str, str] = {
     "pc_szerver/banyaszgep": "Mining Rigs",
     "pc_szerver/kartyameretu_pc_raspberry_stb": "Single-Board PCs",
     "pc_szerver/szerver": "Servers",
-    "pc_szerver/szoftver": "PC Software",
     "notebook/apple": "MacBooks",
     "notebook/pc": "Laptops",
     "hardver/alaplap": "Motherboards",
@@ -104,7 +107,6 @@ DEFAULT_SEARCH_URLS: list[str] = [
     "https://hardverapro.hu/aprok/pc_szerver/banyaszgep/index.html",
     "https://hardverapro.hu/aprok/pc_szerver/kartyameretu_pc_raspberry_stb/index.html",
     "https://hardverapro.hu/aprok/pc_szerver/szerver/index.html",
-    "https://hardverapro.hu/aprok/pc_szerver/szoftver/index.html",
     # PC components / peripherals (hardver)
     "https://hardverapro.hu/aprok/hardver/alaplap/index.html",
     "https://hardverapro.hu/aprok/hardver/videokartya/index.html",

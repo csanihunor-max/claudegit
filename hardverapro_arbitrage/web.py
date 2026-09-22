@@ -71,7 +71,7 @@ _TEMPLATE = """
     listing's location text (a fixed lookup table of known towns, not a geocoding
     service — "—" means the location wasn't recognized). Last {{ window_days }} days,
     top {{ limit }}. Auto-refreshes every 5 min, or click Refresh for an immediate
-    rescan (can take several minutes with the default 53-category list — this
+    rescan (can take several minutes with the default 52-category list — this
     blocks until it's done, it hasn't hung). Click a column header to sort by it
     (click again to flip direction).
   </p>
@@ -249,7 +249,7 @@ def create_app(config: Config) -> Flask:
     def refresh():
         # Synchronous and blocking on purpose: a manual refresh button on a
         # personal dashboard, not a production endpoint. Takes as long as
-        # one full scrape cycle -- with the default 53-category list and
+        # one full scrape cycle -- with the default 52-category list and
         # HA_MAX_PAGES_PER_CATEGORY=6, that's several minutes, not the
         # "under a minute" this used to promise back when there were far
         # fewer categories; a narrower HA_SEARCH_URLS is proportionally

@@ -1,4 +1,4 @@
-from hardverapro_arbitrage.scraper.normalize import is_bundle_or_generic_key, normalize_title
+from hardverapro_arbitrage.scraper.normalize import is_bundle_or_generic_key, is_digital_good, normalize_title
 
 
 def test_strips_sale_filler_words():
@@ -53,3 +53,29 @@ def test_a_console_plus_a_few_named_games_is_not_flagged():
     # specific enough (has "konzol" and a count) to not collapse into the
     # bare "<platform> games" pattern
     assert is_bundle_or_generic_key(normalize_title("Xbox One konzol + 3 játékkal")) is False
+
+
+# Real problem this catches: widening category coverage pulled digital
+# goods (subscription codes, game keys, software licenses) into
+# otherwise-physical categories like "Xbox" -- a "Game Pass Ultimate
+# előfizetés" listing sitting right next to actual physical consoles.
+def test_digital_goods_are_flagged():
+    for title in [
+        "Game Pass Ultimate előfizetések 3 - 36 hónapig azonnali kézbesítéssel!",
+        "Xbox Live Gold előfizetés 12 hónap",
+        "PS Plus Essential előfizetés 3 hónap",
+        "Steam kulcs - Cyberpunk 2077",
+        "Digitális kód - Forza Horizon 5",
+        "CD Key Windows 11 Pro",
+    ]:
+        assert is_digital_good(normalize_title(title)) is True, title
+
+
+def test_physical_listings_are_not_flagged_as_digital():
+    for title in [
+        "Xbox One S All Digital 1TB",
+        "ASUS ROG Xbox Ally X",
+        "PlayStation 4 Pro 1TB",
+        "Ryzen 5 7600X",
+    ]:
+        assert is_digital_good(normalize_title(title)) is False, title

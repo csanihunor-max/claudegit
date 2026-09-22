@@ -94,3 +94,44 @@ def is_bundle_or_generic_key(normalized_key: str) -> bool:
     if set(normalized_key.split()) & _BUNDLE_SIGNAL_WORDS:
         return True
     return bool(_GENERIC_GAMES_RE.match(normalized_key))
+
+
+# Real problem this catches: widening category coverage to every
+# hardverapro.hu electronics category pulled in digital goods --
+# subscription codes, game keys, software licenses -- mixed into
+# otherwise-physical categories like "Xbox" or "PlayStation" (a "Game
+# Pass Ultimate előfizetés" listing sits right next to an actual physical
+# console). These aren't just noise, they're a category error: a digital
+# code has no real used-market price (it's resold indefinitely at
+# whatever the reseller sets, not worn down by use like a physical item),
+# there's nothing to physically pick up (the distance-to-Budapest feature
+# is meaningless for one), and mixing them in dilutes an already-wide
+# category down to barely any genuinely comparable physical listings.
+# Substrings, not a whole-key match like the bundle check above --
+# these phrases can appear anywhere in an otherwise-normal-looking title.
+_DIGITAL_GOOD_MARKERS = (
+    "elofizet",  # "előfizetés"/"előfizetések" (subscription), any inflected form
+    "game pass",
+    "ps plus",
+    "playstation plus",
+    "xbox live",
+    "digitalis kulcs",
+    "digitalis kod",
+    "steam kulcs",
+    "licenc kulcs",
+    "cd kulcs",
+    "cd key",
+    "azonnali kezbesit",  # "azonnali kézbesítés(sel)" -- instant delivery, meaningless for a physical item
+    "feltoltokartya",
+    "feltolto kartya",
+)
+
+
+def is_digital_good(normalized_key: str) -> bool:
+    """True if this listing is a digital good (a subscription, game key,
+    or software license) rather than a physical, pickupable item. See
+    the comment above _DIGITAL_GOOD_MARKERS for why these need excluding
+    outright rather than just letting them compete on price like a real
+    used item.
+    """
+    return any(marker in normalized_key for marker in _DIGITAL_GOOD_MARKERS)

@@ -26,6 +26,7 @@ from .notify.console import ConsoleNotifier
 from .notify.telegram import TelegramNotifier
 from .pipeline import run_once
 from .scraper.client import HardveraproClient
+from .scraper.ram_specs import parse_ram_spec
 from .storage import db
 
 logger = logging.getLogger(__name__)
@@ -52,17 +53,21 @@ _TEMPLATE = """
     .price { white-space: nowrap; }
     .empty { color: #888; padding: 2rem 0; text-align: center; }
     .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-    button.refresh { background: #234; color: #eee; border: 1px solid #456; border-radius: 6px; padding: 0.4rem 0.9rem;
-                      font-size: 0.85rem; cursor: pointer; }
-    button.refresh:hover { background: #345; }
+    button.refresh, a.refresh { background: #234; color: #eee; border: 1px solid #456; border-radius: 6px;
+                      padding: 0.4rem 0.9rem; font-size: 0.85rem; cursor: pointer; display: inline-block;
+                      text-decoration: none; }
+    button.refresh:hover, a.refresh:hover { background: #345; }
   </style>
 </head>
 <body>
   <div class="toolbar">
     <h1>Best Hardverapro deals right now</h1>
-    <form method="post" action="{{ url_for('refresh') }}">
-      <button class="refresh" type="submit">↻ Refresh now</button>
-    </form>
+    <div style="display:flex; gap:0.5rem;">
+      <a class="refresh" href="{{ url_for('ram_finder') }}">DDR4 32GB 3200MHz+ RAM</a>
+      <form method="post" action="{{ url_for('refresh') }}">
+        <button class="refresh" type="submit">↻ Refresh now</button>
+      </form>
+    </div>
   </div>
   {% if refresh_error %}<p class="meta" style="color:#e77">{{ refresh_error }}</p>{% endif %}
   <p class="meta">
@@ -125,6 +130,91 @@ _TEMPLATE = """
   </table>
   {% else %}
   <p class="empty">No deals detected yet. Either the scraper hasn't found any, or it hasn't run yet — see README for how to start it.</p>
+  {% endif %}
+</body>
+</html>
+"""
+
+_RAM_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAM finder — Hardverapro deals</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 1rem;
+           background: #111; color: #eee; }
+    h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.75rem; }
+    .meta { color: #888; font-size: 0.8rem; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid #333; }
+    th { color: #999; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; }
+    a { color: #6cf; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .price { white-space: nowrap; }
+    .empty { color: #888; padding: 2rem 0; text-align: center; }
+    .toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .toolbar label { color: #999; font-size: 0.8rem; }
+    .toolbar input, .toolbar select { background: #1a1a1a; color: #eee; border: 1px solid #456;
+                      border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.85rem; width: 6rem; }
+    button.apply { background: #234; color: #eee; border: 1px solid #456; border-radius: 6px;
+                      padding: 0.4rem 0.9rem; font-size: 0.85rem; cursor: pointer; }
+    button.apply:hover { background: #345; }
+  </style>
+</head>
+<body>
+  <p><a href="{{ url_for('dashboard') }}">&larr; Back to deals</a></p>
+  <h1>RAM finder</h1>
+  <p class="meta">
+    Every currently-listed RAM ad on hardverapro.hu matching these specs, cheapest first --
+    not a "deal" against market history like the main dashboard, just a live filtered search.
+    Parsed from each title's stated type/capacity/frequency (see scraper/ram_specs.py) --
+    a listing worded unusually enough not to state all three clearly won't appear here.
+  </p>
+  <form method="get" class="toolbar">
+    <label>Type
+      <select name="type">
+        {% for t in ("ddr3", "ddr4", "ddr5") %}
+        <option value="{{ t }}" {{ "selected" if t == memory_type else "" }}>{{ t.upper() }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Min capacity (GB)
+      <input type="number" name="min_capacity_gb" value="{{ min_capacity_gb }}" min="1">
+    </label>
+    <label>Min frequency (MHz)
+      <input type="number" name="min_freq_mhz" value="{{ min_freq_mhz }}" min="1">
+    </label>
+    <button class="apply" type="submit">Search</button>
+  </form>
+  {% if results %}
+  <table>
+    <thead>
+      <tr>
+        <th>Price</th>
+        <th>Item</th>
+        <th>Capacity</th>
+        <th>Frequency</th>
+        <th>Location</th>
+        <th>Distance</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr>
+        <td class="price">{{ "{:,.0f}".format(r.price) }} {{ r.currency }}</td>
+        <td><a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.title }}</a></td>
+        <td>{{ r.spec.capacity_gb }} GB</td>
+        <td>{{ r.spec.frequency_mhz }} MHz</td>
+        <td>{{ r.location or "" }}</td>
+        <td class="price">{% if r.distance_km is not none %}{{ "%.0f"|format(r.distance_km) }} km{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No current RAM listings match these specs.</p>
   {% endif %}
 </body>
 </html>
@@ -294,6 +384,60 @@ def create_app(config: Config) -> Flask:
         deals = _sort_deals(deals, sort, direction)
 
         return jsonify(deals)
+
+    @app.get("/ram")
+    def ram_finder():
+        memory_type = request.args.get("type") or "ddr4"
+        try:
+            min_capacity_gb = int(request.args.get("min_capacity_gb", 32))
+        except ValueError:
+            min_capacity_gb = 32
+        try:
+            min_freq_mhz = int(request.args.get("min_freq_mhz", 3200))
+        except ValueError:
+            min_freq_mhz = 3200
+
+        conn = _get_conn()
+        try:
+            rows = db.get_current_listings(
+                conn,
+                config.reference_window_days,
+                max_listing_age_seconds=config.poll_interval_seconds * 2,
+                source_label="RAM",
+            )
+        finally:
+            conn.close()
+
+        results = []
+        for row in rows:
+            spec = parse_ram_spec(row["title"])
+            if spec is None:
+                continue
+            if spec.memory_type != memory_type:
+                continue
+            if spec.capacity_gb < min_capacity_gb or spec.frequency_mhz < min_freq_mhz:
+                continue
+            geo = describe_location(row["location"])
+            results.append(
+                {
+                    "title": row["title"],
+                    "url": row["url"],
+                    "price": row["price"],
+                    "currency": row["currency"],
+                    "location": row["location"],
+                    "distance_km": geo["distance_km"] if geo else None,
+                    "spec": spec,
+                }
+            )
+        results.sort(key=lambda r: r["price"])
+
+        return render_template_string(
+            _RAM_TEMPLATE,
+            results=results,
+            memory_type=memory_type,
+            min_capacity_gb=min_capacity_gb,
+            min_freq_mhz=min_freq_mhz,
+        )
 
     @app.get("/healthz")
     def healthz():

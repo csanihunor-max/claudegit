@@ -255,6 +255,76 @@ def test_refresh_without_search_urls_shows_error(tmp_path):
     assert "HA_SEARCH_URLS" in response.get_data(as_text=True)
 
 
+def _ram_client(tmp_path, listings_with_labels: list[tuple[Listing, str | None]]):
+    config = Config(search_urls=["https://example.com"], db_path=str(tmp_path / "ram.sqlite3"))
+    conn = db.connect(config.db_path)
+    for listing, source_label in listings_with_labels:
+        db.record_observation(conn, listing, source_label=source_label)
+    conn.close()
+    return create_app(config).test_client()
+
+
+def _ram_listing(listing_id: str, title: str, price: float, location: str = "Budapest") -> Listing:
+    return Listing(
+        listing_id=listing_id,
+        url=f"https://hardverapro.hu/x-t{listing_id}",
+        title=title,
+        price=price,
+        currency="HUF",
+        location=location,
+        seen_at=datetime.now(timezone.utc),
+    )
+
+
+def test_ram_finder_matches_only_ram_category_and_spec(tmp_path):
+    client = _ram_client(
+        tmp_path,
+        [
+            (_ram_listing("1", "G.SKILL Ripjaws V 32GB (2x16GB) DDR4 3200MHz CL16", 35_000), "RAM"),
+            # too small a kit -- doesn't meet the 32GB floor
+            (_ram_listing("2", "Kingston DDR4 8GB asztali RAM 2400MHz", 8_000), "RAM"),
+            # a laptop whose *embedded* RAM happens to match the same spec --
+            # must not appear just because the words match; it's not a RAM
+            # listing, it's scraped from a different category entirely.
+            (_ram_listing("3", "Gamer laptop i7 32GB DDR4 3200MHz RTX 4060 1TB SSD", 450_000), "Laptops"),
+        ],
+    )
+    response = client.get("/ram?type=ddr4&min_capacity_gb=32&min_freq_mhz=3200")
+    body = response.get_data(as_text=True)
+    assert "G.SKILL" in body
+    assert "Kingston" not in body
+    assert "Gamer laptop" not in body
+
+
+def test_ram_finder_sorts_by_price_ascending(tmp_path):
+    client = _ram_client(
+        tmp_path,
+        [
+            (_ram_listing("expensive", "Corsair Vengeance 32GB (2x16GB) DDR4 3600MHz", 50_000), "RAM"),
+            (_ram_listing("cheap", "G.SKILL Ripjaws V 32GB (2x16GB) DDR4 3200MHz", 30_000), "RAM"),
+        ],
+    )
+    body = client.get("/ram").get_data(as_text=True)
+    assert body.index("G.SKILL") < body.index("Corsair")
+
+
+def test_ram_finder_defaults_to_the_requested_spec(tmp_path):
+    # No query params at all -- the whole point of "a dedicated button"
+    # is that these defaults are exactly what was asked for.
+    client = _ram_client(
+        tmp_path,
+        [(_ram_listing("1", "G.SKILL Ripjaws V 32GB (2x16GB) DDR4 3200MHz CL16", 35_000), "RAM")],
+    )
+    body = client.get("/ram").get_data(as_text=True)
+    assert "G.SKILL" in body
+
+
+def test_dashboard_links_to_ram_finder(tmp_path):
+    client = _make_client(tmp_path, [])
+    body = client.get("/").get_data(as_text=True)
+    assert 'href="/ram' in body
+
+
 def test_refresh_failure_is_caught_and_shown(tmp_path, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("network exploded")

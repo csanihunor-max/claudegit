@@ -5,7 +5,7 @@ import logging
 import sqlite3
 
 from .arbitrage.detector import evaluate
-from .categories import label_for_url
+from .categories import is_liquid_category, label_for_url
 from .config import Config
 from .models import Deal
 from .notify.base import Notifier
@@ -50,8 +50,9 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
     for url in config.search_urls:
         source_label = label_for_url(url)
         seen_ids: set[str] = set()
+        max_pages = config.max_pages_per_liquid_category if is_liquid_category(url) else config.max_pages_per_category
 
-        for page in range(config.max_pages_per_category):
+        for page in range(max_pages):
             page_url = _offset_url(url, page * _PAGE_SIZE)
             try:
                 html = client.get(page_url)
@@ -73,7 +74,7 @@ def run_once(config: Config, conn: sqlite3.Connection, client: HardveraproClient
             seen_ids.update(listing.listing_id for listing in listings)
 
             for listing in listings:
-                db.record_observation(conn, listing)
+                db.record_observation(conn, listing, source_label=source_label)
 
                 # A bundle/lot listing, one too generic to be a single
                 # comparable product, or a digital good (subscription,

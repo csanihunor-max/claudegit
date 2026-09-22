@@ -125,6 +125,39 @@ def test_pagination_respects_max_pages_cap(monkeypatch):
     ]
 
 
+def test_liquid_categories_get_the_deeper_page_cap(monkeypatch):
+    # GPUs/CPUs/RAM/motherboards/storage (categories.is_liquid_category)
+    # get max_pages_per_liquid_category instead of the plain
+    # max_pages_per_category everyone else uses -- every page here has a
+    # genuinely new listing, so this only stops once the right cap is hit.
+    client = _PagedFakeClient()
+    monkeypatch.setattr(
+        pipeline_module, "parse_search_results", lambda html: [_listing(html, 10_000, "Item")]
+    )
+
+    config = Config(
+        search_urls=["https://hardverapro.hu/aprok/hardver/videokartya/index.html"],
+        max_pages_per_category=3,
+        max_pages_per_liquid_category=5,
+    )
+    conn = db.connect(":memory:")
+    pipeline_module.run_once(config, conn, client, [ConsoleNotifier()])
+
+    assert len(client.urls_fetched) == 5  # the liquid cap, not the plain 3-page cap
+
+
+def test_source_label_is_recorded_on_observations(monkeypatch):
+    listings = [_listing("1", 10_000, "Item 1")]
+    monkeypatch.setattr(pipeline_module, "parse_search_results", lambda html: listings)
+
+    config = Config(search_urls=["https://hardverapro.hu/aprok/hardver/memoria/index.html"])
+    conn = db.connect(":memory:")
+    pipeline_module.run_once(config, conn, _FakeHardveraproClient(), [ConsoleNotifier()])
+
+    row = conn.execute("SELECT source_label FROM observations").fetchone()
+    assert row[0] == "RAM"
+
+
 def test_pagination_stops_on_wraparound_not_just_empty_pages(monkeypatch):
     # The real bug this guards against: a category smaller than one page
     # doesn't get an empty result past its end -- the site wraps around

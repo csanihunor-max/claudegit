@@ -144,6 +144,36 @@ DEFAULT_SEARCH_URLS: list[str] = [
 ]
 
 
+# The classic drop-in PC components: standardized model names (a "Ryzen 5
+# 7600X" or "RTX 4070" is already a clean, near-universal title, unlike a
+# phone or laptop's freely-worded one), high used-market turnover, and
+# real everyday resale demand -- exactly the conditions the used-median
+# comparison (pricing/market.py) needs to actually find matching listings.
+# Checked against real scraped data: these standardized-name categories
+# were disproportionately represented among the handful of normalized
+# keys that ever reached 2+ comparable listings at all. Given deeper
+# pages per category costs nothing extra for a category that isn't
+# actually that deep (pipeline.py stops pagination the moment a page
+# introduces no new listings), scraping these specific categories further
+# is a direct, low-risk lever for more of the market these five
+# categories actually contain.
+_LIQUID_HARDWARE_SLUGS = frozenset(
+    {
+        "hardver/alaplap",
+        "hardver/videokartya",
+        "hardver/processzor",
+        "hardver/memoria",
+        "hardver/merevlemez_ssd",
+    }
+)
+
+
+def is_liquid_category(url: str) -> bool:
+    """True for the handful of PC-component categories worth scraping
+    deeper than the rest -- see _LIQUID_HARDWARE_SLUGS above."""
+    return any(slug in url for slug in _LIQUID_HARDWARE_SLUGS)
+
+
 def label_for_url(url: str) -> str:
     """Best-effort display label for a configured search URL. Falls back
     to the last meaningful path segment, title-cased, for anything not in

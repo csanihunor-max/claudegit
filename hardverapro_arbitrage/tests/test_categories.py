@@ -1,4 +1,4 @@
-from hardverapro_arbitrage.categories import _LABELS, DEFAULT_SEARCH_URLS, label_for_url
+from hardverapro_arbitrage.categories import _LABELS, DEFAULT_SEARCH_URLS, is_liquid_category, label_for_url
 
 
 def test_known_category_labeled():
@@ -38,6 +38,21 @@ def test_newer_categories_labeled():
         == "Headphones"
     )
     assert label_for_url("https://hardverapro.hu/aprok/mobil/okosora_okosgyuru/index.html") == "Smartwatches"
+
+
+def test_liquid_pc_component_categories_are_flagged():
+    for slug in ("alaplap", "videokartya", "processzor", "memoria", "merevlemez_ssd"):
+        url = f"https://hardverapro.hu/aprok/hardver/{slug}/index.html"
+        assert is_liquid_category(url) is True, url
+
+
+def test_non_liquid_categories_are_not_flagged():
+    for url in (
+        "https://hardverapro.hu/aprok/hardver/monitor/index.html",
+        "https://hardverapro.hu/aprok/mobil/mobil/index.html",
+        "https://hardverapro.hu/aprok/notebook/pc/index.html",
+    ):
+        assert is_liquid_category(url) is False, url
 
 
 def test_every_default_url_has_a_specific_label_not_a_fallback():

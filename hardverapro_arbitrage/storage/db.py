@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS observations (
     price REAL NOT NULL,
     currency TEXT NOT NULL,
     location TEXT,
-    seen_at TEXT NOT NULL
+    seen_at TEXT NOT NULL,
+    source_label TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_observations_key ON observations (normalized_key, seen_at);
 CREATE INDEX IF NOT EXISTS idx_observations_listing ON observations (listing_id, seen_at);
@@ -60,13 +61,21 @@ CREATE INDEX IF NOT EXISTS idx_deals_detected_at ON deals (detected_at);
 # SQLite's ALTER TABLE can't do directly. `_migrate` rebuilds only the
 # specific tables that need it; a brand-new database is created at the
 # current shape by `_SCHEMA` above and never touches `_migrate` at all.
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
     current = conn.execute("PRAGMA user_version").fetchone()[0]
     if current >= _SCHEMA_VERSION:
         return
+
+    obs_columns = {row["name"] for row in conn.execute("PRAGMA table_info(observations)")}
+    if "source_label" not in obs_columns:
+        # A plain ADD COLUMN suffices here (unlike the deals rebuild
+        # below) since it's nullable -- existing rows predate the
+        # category-specific search feature this feeds and have no
+        # category to backfill, so they're left NULL rather than guessed.
+        conn.execute("ALTER TABLE observations ADD COLUMN source_label TEXT")
 
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(deals)")}
     if "basis" in columns:
@@ -109,13 +118,13 @@ def connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def record_observation(conn: sqlite3.Connection, listing: Listing) -> None:
+def record_observation(conn: sqlite3.Connection, listing: Listing, *, source_label: str | None = None) -> None:
     with closing(conn.cursor()) as cur:
         cur.execute(
             """
             INSERT INTO observations
-                (listing_id, normalized_key, title, url, price, currency, location, seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (listing_id, normalized_key, title, url, price, currency, location, seen_at, source_label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 listing.listing_id,
@@ -126,9 +135,54 @@ def record_observation(conn: sqlite3.Connection, listing: Listing) -> None:
                 listing.currency,
                 listing.location,
                 listing.seen_at.isoformat(),
+                source_label,
             ),
         )
     conn.commit()
+
+
+def get_current_listings(
+    conn: sqlite3.Connection,
+    window_days: int,
+    *,
+    max_listing_age_seconds: float | None = None,
+    source_label: str | None = None,
+) -> list[sqlite3.Row]:
+    """A duplicate-free live snapshot of the market: each listing's single
+    most recent observation, one row per listing_id, restricted to
+    listings still fresh enough to plausibly be active. Backs
+    category-specific spec search features (see web.py's /ram) where the
+    question isn't "is this a deal against its own history" but "what's
+    currently for sale that matches these specs" -- so unlike
+    get_recent_prices, there's no dedup-by-item-key here, just one row per
+    real listing.
+
+    `source_label`, when given, restricts to listings scraped from that
+    specific category (see categories.py's label_for_url) -- rows scraped
+    before this column existed have a NULL source_label and are excluded
+    by this filter, since there's no category to backfill them with.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    if max_listing_age_seconds is not None:
+        since = max(since, (datetime.now(timezone.utc) - timedelta(seconds=max_listing_age_seconds)).isoformat())
+
+    query = """
+        SELECT o.* FROM observations o
+        INNER JOIN (
+            SELECT listing_id, MAX(seen_at) AS latest_seen_at
+            FROM observations
+            GROUP BY listing_id
+        ) latest ON o.listing_id = latest.listing_id AND o.seen_at = latest.latest_seen_at
+        WHERE o.seen_at >= ?
+    """
+    params: list = [since]
+    if source_label is not None:
+        query += " AND o.source_label = ?"
+        params.append(source_label)
+
+    with closing(conn.cursor()) as cur:
+        cur.execute(query, params)
+        return cur.fetchall()
 
 
 def get_recent_prices(

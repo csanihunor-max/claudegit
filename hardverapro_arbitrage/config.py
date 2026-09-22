@@ -140,6 +140,17 @@ class Config:
     # requests on categories actually deep enough to use them.
     max_pages_per_category: int = field(default_factory=lambda: _env_int("HA_MAX_PAGES_PER_CATEGORY", 6))
 
+    # Deeper page cap for the handful of high-turnover PC-component
+    # categories in categories.py's is_liquid_category (GPUs, CPUs, RAM,
+    # motherboards, storage) -- these have standardized model names that
+    # the used-median comparison can actually match on, so more depth here
+    # directly means more real comparables, not just more noise. Costs
+    # nothing extra on a category that isn't actually this deep (see
+    # max_pages_per_category above).
+    max_pages_per_liquid_category: int = field(
+        default_factory=lambda: _env_int("HA_MAX_PAGES_PER_LIQUID_CATEGORY", 15)
+    )
+
     telegram_bot_token: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_BOT_TOKEN") or None)
     telegram_chat_id: str | None = field(default_factory=lambda: os.environ.get("HA_TELEGRAM_CHAT_ID") or None)
 

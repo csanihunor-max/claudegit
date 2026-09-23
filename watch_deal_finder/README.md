@@ -105,7 +105,13 @@ searches:
 - **max_price_huf**: listings above it are still stored and visible in the
   dashboard (and alert later if the price drops under it), but don't alert.
 - **reference_price_eur**: the numbers in the shipped config are placeholders.
-  Put in what you actually sell for.
+  Put in what you actually sell for. To check one, use the **eBay sold ↗**
+  links: every listing, alert and search links to eBay's sold-items search
+  for that model (brand + model words + reference numbers from the title,
+  e.g. "raketa copernicus", "seiko 5 7009 3040"), on `sources.ebay.sold_domain`
+  (default ebay.de). These are plain links; nothing is scraped. Choosing a
+  search on the dashboard also shows how many Jófogás ads for it disappeared
+  in the last 30 days (sold or withdrawn) and their median last asking price.
 - **blacklist**: words that make a listing ignored everywhere. Also matches
   inside longer words (`gyerek` blocks `gyerekóra`).
 - **eur_huf_rate**: fixed rate for the ~EUR figures; update it now and then.

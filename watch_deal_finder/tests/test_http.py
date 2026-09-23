@@ -85,3 +85,16 @@ def test_unreachable_robots_txt_means_no_requests_this_time():
     c, _ = client({"https://s.hu/robots.txt": [Resp(503)]})
     with pytest.raises(DisallowedByRobots):
         c.get("https://s.hu/a")
+
+
+def test_robots_txt_is_refreshed_daily():
+    now = [0.0]
+    session = FakeSession({
+        "https://s.hu/robots.txt": [Resp(200, ""), Resp(200, ROBOTS)],
+        "https://s.hu/private/x": [Resp(200, "ok")],
+    })
+    c = HttpClient("TestAgent/1.0", delay_range=(1, 1), session=session, sleep=lambda s: None, clock=lambda: now[0])
+    assert c.get("https://s.hu/private/x").text == "ok"
+    now[0] = 25 * 3600
+    with pytest.raises(DisallowedByRobots):
+        c.get("https://s.hu/private/x")

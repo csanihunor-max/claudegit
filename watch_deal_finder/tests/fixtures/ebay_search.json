@@ -1,0 +1,38 @@
+{
+  "_comment": "Hand-written sample in the documented Browse API item_summary/search response format (no eBay keys were available to record a live response). Seller blocks are included to prove they are not stored.",
+  "href": "https://api.ebay.com/buy/browse/v1/item_summary/search?q=raketa&category_ids=31387&limit=3&sort=newlyListed",
+  "total": 3,
+  "limit": 3,
+  "offset": 0,
+  "itemSummaries": [
+    {
+      "itemId": "v1|226512345678|0",
+      "title": "Raketa 2609 HA Men's Mechanical Watch USSR 1980s",
+      "price": {"value": "64.99", "currency": "EUR"},
+      "itemWebUrl": "https://www.ebay.de/itm/226512345678",
+      "image": {"imageUrl": "https://i.ebayimg.com/images/g/abc/s-l225.jpg"},
+      "itemLocation": {"postalCode": "10***", "country": "DE"},
+      "categories": [{"categoryId": "31387", "categoryName": "Armbanduhren"}],
+      "seller": {"username": "SENTINEL_SELLER", "feedbackPercentage": "99.8", "feedbackScore": 1234},
+      "buyingOptions": ["FIXED_PRICE"],
+      "condition": "Gebraucht"
+    },
+    {
+      "itemId": "v1|226512345679|0",
+      "title": "Raketa Big Zero Vintage",
+      "currentBidPrice": {"value": "31.00", "currency": "EUR"},
+      "itemWebUrl": "https://www.ebay.de/itm/226512345679",
+      "thumbnailImages": [{"imageUrl": "https://i.ebayimg.com/images/g/def/s-l225.jpg"}],
+      "itemLocation": {"city": "Wien", "country": "AT"},
+      "seller": {"username": "SENTINEL_SELLER"},
+      "buyingOptions": ["AUCTION"]
+    },
+    {
+      "itemId": "v1|226512345680|0",
+      "title": "Raketa Copernicus",
+      "price": {"value": "45.00", "currency": "GBP"},
+      "itemWebUrl": "https://www.ebay.de/itm/226512345680",
+      "itemLocation": {"country": "GB"}
+    }
+  ]
+}

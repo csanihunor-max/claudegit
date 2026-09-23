@@ -16,6 +16,7 @@ from .robots import RobotsRules
 log = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+ROBOTS_TTL_SECONDS = 24 * 3600
 
 
 class HttpError(RuntimeError):
@@ -50,7 +51,7 @@ class HttpClient:
         self._sleep = sleep
         self._clock = clock
         self._last_request: dict[str, float] = {}
-        self._robots: dict[str, RobotsRules] = {}
+        self._robots: dict[str, tuple[RobotsRules, float]] = {}
 
     # -- politeness -------------------------------------------------------
 
@@ -65,7 +66,8 @@ class HttpClient:
     def robots_for(self, url: str) -> RobotsRules:
         parts = urlsplit(url)
         base = f"{parts.scheme}://{parts.netloc}"
-        if base not in self._robots:
+        cached = self._robots.get(base)
+        if cached is None or self._clock() - cached[1] > ROBOTS_TTL_SECONDS:
             rules = RobotsRules("")
             try:
                 resp = self._send("GET", base + "/robots.txt", check_robots=False, retry=False)
@@ -77,8 +79,8 @@ class HttpClient:
                 # so the next pass tries again.
                 log.warning("could not fetch %s/robots.txt (%s); skipping requests to it", base, exc)
                 return RobotsRules("User-agent: *\nDisallow: /")
-            self._robots[base] = rules
-        return self._robots[base]
+            self._robots[base] = (rules, self._clock())
+        return self._robots[base][0]
 
     # -- requests ---------------------------------------------------------
 

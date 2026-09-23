@@ -45,6 +45,11 @@ blacklist:
   - galaxy watch
   - óraszíj
   - csak doboz
+  # accessories that brand keywords (esp. Omega) pull in
+  - óradoboz
+  - kártyatartó
+  - sapka
+  - órajavító
 
 sources:
   jofogas:

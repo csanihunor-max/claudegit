@@ -1,5 +1,9 @@
 # Hardverapro Arbitrage Scraper
 
+> This repository also contains **Watch Deal Finder** (`watch_deal_finder/`), a
+> separate tool for used/vintage watch deals on Jófogás; see
+> [watch_deal_finder/README.md](watch_deal_finder/README.md).
+
 Polls one or more hardverapro.hu search-result pages every hour, tracks
 prices per item over time, and flags listings priced well below that
 item's own recent second-hand market price.

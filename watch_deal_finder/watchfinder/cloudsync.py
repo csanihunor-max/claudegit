@@ -8,6 +8,13 @@ A scheduled cloud session starts from an empty container every run, so it:
    manifests (`export_state`),
 3. applies those batches with ArtifactData and reports the alerts.
 
+The database refuses an unpinned write to a document that was read, so the
+dump directory also holds `versions.json` ({"shards/s00": 3, "state/seen": 7,
+...}, the versions the reads reported) and every write to an existing document
+carries that `if_version`. A write that loses a race with the page (a status
+click in between) then fails cleanly instead of overwriting it; the next run
+redoes the work.
+
 Artifact database layout:
     shards/s00..s15     {"items": {doc_id: listing}}: every listing, spread over
                         16 documents by a stable hash (a database holds at most
@@ -85,6 +92,15 @@ def _unwrap(raw: Any) -> dict[str, Any]:
             if isinstance(raw.get(key), dict) and ("version" in raw or "id" in raw or "doc_id" in raw):
                 return raw[key]
     return raw if isinstance(raw, dict) else {}
+
+
+def load_versions(state_dir: Path) -> dict[str, int]:
+    """versions.json written next to the dump: {"collection/doc_id": version}."""
+    path = state_dir / "versions.json"
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return {str(k): int(v) for k, v in raw.items() if str(v).isdigit()}
 
 
 def load_docs(directory: Path) -> dict[str, dict[str, Any]]:
@@ -184,9 +200,14 @@ def export_state(
     run_at: str,
     summary: dict[str, Any],
     alerts: list[Alert],
+    versions: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Write changed documents and batch manifests under out_dir. Returns a small report."""
+    """Write changed documents and batch manifests under out_dir. Returns a small report.
+
+    `versions` maps "collection/doc_id" to the version read in the dump; writes to
+    those documents are pinned with it."""
     out_dir = out_dir.resolve()
+    versions = versions or {}
     docs_dir = out_dir / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
     writes: list[dict[str, Any]] = []
@@ -194,7 +215,12 @@ def export_state(
     def add(op: str, collection: str, did: str, data: dict[str, Any]) -> None:
         path = docs_dir / f"{collection}__{did}.json"
         path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        writes.append({"op": op, "collection": collection, "doc_id": did, "file_path": str(path)})
+        write = {"op": op, "collection": collection, "doc_id": did, "file_path": str(path)}
+        if f"{collection}/{did}" in versions:
+            write["if_version"] = versions[f"{collection}/{did}"]
+            if op == "set" and collection == SHARDS:
+                write["op"] = "update"  # an existing shard is merged, never replaced
+        writes.append(write)
 
     cutoff = (datetime.fromisoformat(run_at) - timedelta(days=PRUNE_GONE_AFTER_DAYS)).isoformat()
     keep_statuses = {"interested", "bought"}

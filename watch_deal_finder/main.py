@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
 def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
     import json
 
-    from watchfinder.cloudsync import CollectingNotifier, export_state, import_state
+    from watchfinder.cloudsync import CollectingNotifier, export_state, import_state, load_versions
     from watchfinder.storage import utcnow
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -118,7 +118,8 @@ def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
         result = Runner(config, storage, build_sources(config, http), notifier).run_once()
         summary = {"kept": result.kept, "events": len(result.events), "gone": result.gone,
                    "failures": result.failures}
-        report = export_state(storage, config, imported, out_dir, run_at, summary, notifier.alerts)
+        report = export_state(storage, config, imported, out_dir, run_at, summary, notifier.alerts,
+                              load_versions(state_dir))
     finally:
         storage.close()
     print(json.dumps(report, ensure_ascii=False, indent=1))

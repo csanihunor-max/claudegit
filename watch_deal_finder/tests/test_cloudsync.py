@@ -177,3 +177,25 @@ def test_old_gone_listings_are_pruned_unless_marked(tmp_path):
     assert report["pruned"] == 2
     assert db.listing_ids() == {"jofogas-2"}                        # bought one kept
     assert "jofogas-1" not in db.docs[("state", "seen")]["last_seen"]
+
+
+def test_writes_are_pinned_to_the_versions_read(tmp_path):
+    from watchfinder.cloudsync import load_versions
+
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L("1", 1000)]
+    cloud_pass(db, source, tmp_path, 1)
+    state = db.dump(tmp_path / "pinned")
+    shard = shard_of("jofogas-1")
+    (state / "versions.json").write_text(json.dumps({f"shards/{shard}": 3, "state/seen": 5, "meta/status": 5}))
+    assert load_versions(state) == {f"shards/{shard}": 3, "state/seen": 5, "meta/status": 5}
+    storage = Storage(tmp_path / "pinned.sqlite3")
+    imported = import_state(storage, state)
+    source.listings = [L("1", 900)]
+    Runner(CONFIG, storage, {"jofogas": source}, CollectingNotifier(),
+           now=lambda: "2026-09-25T10:00:00+00:00").run_once()
+    report = export_state(storage, CONFIG, imported, tmp_path / "pinned_out", "2026-09-25T10:00:00+00:00", {}, [],
+                          load_versions(state))
+    writes = {(w["collection"], w["doc_id"]): w for b in report["batches"] for w in json.loads(Path(b).read_text())}
+    assert writes[("shards", shard)]["if_version"] == 3 and writes[("shards", shard)]["op"] == "update"
+    assert writes[("state", "seen")]["if_version"] == 5 and writes[("meta", "status")]["if_version"] == 5

@@ -49,8 +49,9 @@ class EbayConfig:
 
 @dataclass(frozen=True)
 class Secrets:
-    telegram_bot_token: str | None = None
-    telegram_chat_id: str | None = None
+    ntfy_topic: str | None = None
+    ntfy_server: str = "https://ntfy.sh"
+    ntfy_token: str | None = None
     ebay_client_id: str | None = None
     ebay_client_secret: str | None = None
 
@@ -154,8 +155,9 @@ def parse_config(raw: dict[str, Any], base_dir: Path = Path("."), environ: Any =
         jofogas=jofogas,
         ebay=ebay,
         secrets=Secrets(
-            telegram_bot_token=environ.get("TELEGRAM_BOT_TOKEN") or None,
-            telegram_chat_id=environ.get("TELEGRAM_CHAT_ID") or None,
+            ntfy_topic=(environ.get("NTFY_TOPIC") or "").strip().strip("/") or None,
+            ntfy_server=environ.get("NTFY_SERVER") or "https://ntfy.sh",
+            ntfy_token=environ.get("NTFY_TOKEN") or None,
             ebay_client_id=environ.get("EBAY_CLIENT_ID") or None,
             ebay_client_secret=environ.get("EBAY_CLIENT_SECRET") or None,
         ),

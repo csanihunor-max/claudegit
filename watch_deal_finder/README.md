@@ -2,7 +2,7 @@
 
 Watches Hungarian marketplaces for used and vintage wristwatches (Soviet
 Raketa / Vostok / Poljot / Pobeda / Slava, 1970s–90s Seiko, mid-range Swiss),
-sends Telegram alerts for new listings and price drops, and has a small local
+sends phone push alerts (via ntfy) for new listings and price drops, and has a small local
 dashboard for browsing the candidates.
 
 - **Jófogás**: public search result pages, polled every 15 minutes by default.
@@ -13,7 +13,7 @@ dashboard for browsing the candidates.
 python main.py run            # scheduled loop
 python main.py once           # one pass, then exit (for cron)
 python main.py dashboard      # web dashboard on http://127.0.0.1:8080/
-python main.py test-telegram  # check the Telegram setup
+python main.py test-notify    # send a test push notification
 ```
 
 ## Setup (laptop, Raspberry Pi or Linux VPS)
@@ -25,8 +25,8 @@ cd watch_deal_finder
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env               # then fill in the Telegram values (next section)
-python main.py test-telegram       # should print "sent" and the message arrives
+cp .env.example .env               # then set NTFY_TOPIC (next section)
+python main.py test-notify         # should print "sent" and your phone buzzes
 python main.py once                # first pass: stores what's listed now, no alerts
 python main.py run                 # keep it running; new listings/price drops alert
 ```
@@ -38,32 +38,45 @@ gets cheaper after that. Set it to `false` if you want the backlog too.
 Data lives in `data/watchfinder.sqlite3`, logs in `logs/watchfinder.log`
 (rotated at 1 MB, 5 files kept).
 
-## Telegram setup
+## Phone alerts (ntfy)
 
-1. In Telegram, open **@BotFather**, send `/newbot`, pick a name and a username
-   ending in `bot`. BotFather replies with a token like `123456789:AAH...`.
-   Put it in `.env` as `TELEGRAM_BOT_TOKEN=...`.
-2. Open a chat with your new bot and send it any message (e.g. "hi"). Bots
-   can't message you first.
-3. Open `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser.
-   Find `"chat":{"id":123456789,...}` and put that number in `.env` as
-   `TELEGRAM_CHAT_ID=123456789`.
-   (For a group: add the bot to the group, send a message there, and use the
-   group's id, which starts with `-`.)
-4. `python main.py test-telegram` → you should get "✅ Watch Deal Finder is connected".
+Alerts are push notifications through [ntfy](https://ntfy.sh), a free,
+open-source notification service. There's no bot and no account: you
+subscribe to a topic name in the app, and the tool posts to that topic.
 
-Without a token the tool still runs; alerts are written to the log instead.
-Keep the token secret: `.env` is git-ignored, and the tool never logs it.
+1. Install the **ntfy** app (Google Play / F-Droid / App Store), or open
+   https://ntfy.sh/app in a browser for desktop notifications.
+2. Make up a long, random topic name. On the public ntfy.sh server, anyone
+   who knows the name can read your alerts, so treat it like a password:
+   ```bash
+   python -c "import secrets; print('watchdeals-' + secrets.token_hex(8))"
+   ```
+3. In the app tap **+ / Subscribe to topic**, enter that name (server:
+   ntfy.sh).
+4. Put the same name in `.env`: `NTFY_TOPIC=watchdeals-...`
+5. `python main.py test-notify`: your phone should show "✅ Watch Deal Finder".
+
+Tapping a notification opens the listing. 🔥 deals are sent at the highest
+priority, so they also come through on a phone set to silent/Do Not Disturb
+if you allow that for the ntfy app. The listing thumbnail is attached as an
+image.
+
+The alerts contain only listing data (title, price, town, link), nothing
+about you. For full privacy you can
+[self-host ntfy](https://docs.ntfy.sh/install/) (a Raspberry Pi works) and
+set `NTFY_SERVER=https://your-server` and `NTFY_TOKEN=tk_...` in `.env`.
+
+Without `NTFY_TOPIC` the tool still runs; alerts are written to the log
+instead.
 
 An alert looks like:
 
 ```
-🔥 🆕 New listing · Raketa
+🔥 🆕 New · Raketa · 8 000 Ft
 Szép állapotban Rakéta karóra
 💰 8 000 Ft (~20 €)
 📈 resale ref 60 € → est. margin +40 € (+66%)
 📍 VIII. kerület, Budapest · Jófogás
-Open listing
 ```
 
 Price drops show `📉 Price drop` and `↘️ was 12 000 Ft (−33%)`. 🔥 means the
@@ -267,8 +280,8 @@ python -m pytest
 They cover parsing real saved Jófogás pages (trimmed, seller data removed),
 Hungarian price formats (`12 500 Ft`, `12.500 Ft`, `12 500,- Ft`, …), the
 blacklist and keyword matching, robots.txt rules, change detection (new,
-price drop, gone, reappeared, no duplicate alerts), Telegram formatting and
-rate limits, HTTP backoff, the eBay API client, and the dashboard API.
+price drop, gone, reappeared, no duplicate alerts), alert formatting, the
+ntfy client and its rate-limit handling, HTTP backoff, the eBay API client, and the dashboard API.
 The eBay sample response is hand-written from the API docs, because no keys
 were available when this was built.
 
@@ -283,8 +296,12 @@ were available when this was built.
   see the VPS note above.
 - **No alerts**: the first pass is silent by design. Check `max_price_huf`,
   the blacklist, and whether the listing is marked Ignore.
-- **Telegram "chat not found"**: you haven't messaged the bot yet, or the
-  chat id is wrong (step 2–3 of the Telegram setup).
+- **No notification on the phone, but `test-notify` says "sent"**: the topic
+  in the app and `NTFY_TOPIC` differ (it's case-sensitive), or Android battery
+  optimisation is stopping the ntfy app. Allow it to run in the background.
+- **ntfy HTTP 429**: ntfy.sh allows bursts of about 60 messages, then one
+  every few seconds. The tool waits and retries; this only happens with a
+  large backlog (e.g. `silent_first_pass: false`).
 
 ## Adding another site
 

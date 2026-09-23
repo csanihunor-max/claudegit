@@ -1,5 +1,5 @@
 # Watch Deal Finder configuration. See README.md, "Editing config.yaml".
-# Secrets (Telegram token, eBay keys) go in .env, never here.
+# Secrets (ntfy topic, eBay keys) go in .env, never here.
 
 # How often to check, in minutes (minimum 10). A little random extra is added each time.
 poll_interval_minutes: 15

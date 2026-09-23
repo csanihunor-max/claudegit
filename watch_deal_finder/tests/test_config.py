@@ -33,13 +33,14 @@ def test_invalid_configs(bad):
 
 
 def test_secrets_come_from_env_file(tmp_path, monkeypatch):
-    for var in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+    for var in ("NTFY_TOPIC", "NTFY_SERVER", "NTFY_TOKEN"):
         monkeypatch.delenv(var, raising=False)
     (tmp_path / "config.yaml").write_text("searches:\n  - name: R\n    keywords: [raketa]\n", encoding="utf-8")
-    (tmp_path / ".env").write_text("TELEGRAM_BOT_TOKEN=123:abc\nTELEGRAM_CHAT_ID=42\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("NTFY_TOPIC=watchdeals-3f9a1c\n", encoding="utf-8")
     cfg = load_config(tmp_path / "config.yaml")
-    assert cfg.secrets.telegram_bot_token == "123:abc"
-    assert cfg.secrets.telegram_chat_id == "42"
+    assert cfg.secrets.ntfy_topic == "watchdeals-3f9a1c"
+    assert cfg.secrets.ntfy_server == "https://ntfy.sh"
+    assert cfg.secrets.ntfy_token is None
     assert cfg.database == tmp_path / "data/watchfinder.sqlite3"
 
 

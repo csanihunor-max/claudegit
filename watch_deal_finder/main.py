@@ -3,7 +3,7 @@
     python main.py run          scheduled loop (every poll_interval_minutes)
     python main.py once         a single pass, then exit (for cron)
     python main.py dashboard    local web dashboard
-    python main.py test-telegram   send a test message to check the bot setup
+    python main.py test-notify  send a test push notification
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ sys.path.insert(0, str(HERE))
 from watchfinder.config import ConfigError, load_config  # noqa: E402
 from watchfinder.http import HttpClient  # noqa: E402
 from watchfinder.logging_setup import setup_logging  # noqa: E402
-from watchfinder.notify import ConsoleNotifier, build_notifier  # noqa: E402
+from watchfinder.notify import Alert, LogNotifier, build_notifier  # noqa: E402
 from watchfinder.runner import Runner  # noqa: E402
 from watchfinder.sources import build_sources  # noqa: E402
 from watchfinder.storage import Storage  # noqa: E402
@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     dash = sub.add_parser("dashboard", help="start the web dashboard")
     dash.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to open it from your phone on the same Wi-Fi")
     dash.add_argument("--port", type=int, default=8080)
-    sub.add_parser("test-telegram", help="send a test Telegram message")
+    sub.add_parser("test-notify", help="send a test push notification via ntfy")
     args = parser.parse_args(argv)
 
     try:
@@ -56,12 +56,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     notifier = build_notifier(config)
-    if args.command == "test-telegram":
-        if isinstance(notifier, ConsoleNotifier):
-            print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are not set in .env", file=sys.stderr)
+    if args.command == "test-notify":
+        if isinstance(notifier, LogNotifier):
+            print("NTFY_TOPIC is not set in .env", file=sys.stderr)
             return 1
-        ok = notifier.send("✅ Watch Deal Finder is connected. Alerts will arrive in this chat.")
-        print("sent" if ok else "failed: see the log for Telegram's error message")
+        ok = notifier.send(Alert(title="✅ Watch Deal Finder", body="Connected. Deal alerts will arrive here."))
+        print("sent" if ok else "failed: see the log for ntfy's error message")
         return 0 if ok else 1
 
     http = HttpClient(config.user_agent, config.request_delay_seconds)

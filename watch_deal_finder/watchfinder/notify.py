@@ -1,11 +1,16 @@
-"""Telegram alerts (with a console fallback when no bot token is configured)."""
+"""Phone push alerts via ntfy (https://ntfy.sh), with a log-only fallback.
+
+ntfy needs no account or bot: install the ntfy app, subscribe to a topic
+name, and we publish to that topic. On the public ntfy.sh server the topic
+name works like a password (anyone who knows it can read the alerts), so
+pick a long random one, or self-host ntfy and use an access token.
+"""
 
 from __future__ import annotations
 
-import html
 import logging
-import re
 import time
+from dataclasses import dataclass
 from typing import Callable, Protocol
 
 import requests
@@ -20,30 +25,57 @@ log = logging.getLogger(__name__)
 SOURCE_LABELS = {"jofogas": "Jófogás", "ebay": "eBay"}
 
 
+@dataclass(frozen=True)
+class Alert:
+    title: str
+    body: str
+    url: str | None = None          # opened when the notification is tapped
+    image_url: str | None = None    # listing thumbnail, shown in the notification
+    hot: bool = False
+
+
 class Notifier(Protocol):
-    def send(self, text: str) -> bool: ...
+    def send(self, alert: Alert) -> bool: ...
 
 
-class TelegramNotifier:
-    API = "https://api.telegram.org/bot{token}/sendMessage"
-
+class NtfyNotifier:
     def __init__(
         self,
-        token: str,
-        chat_id: str,
+        topic: str,
+        server: str = "https://ntfy.sh",
+        token: str | None = None,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
-        min_interval: float = 1.1,  # Telegram asks for at most ~1 message/second per chat
+        min_interval: float = 1.0,
     ):
-        self.url = self.API.format(token=token)
-        self.chat_id = chat_id
+        self.server = server.rstrip("/")
+        self.topic = topic
         self.session = session or requests.Session()
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
         self._sleep = sleep
         self._min_interval = min_interval
         self._last_sent: float | None = None
 
-    def send(self, text: str) -> bool:
-        payload = {"chat_id": self.chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": False}
+    def payload(self, alert: Alert) -> dict:
+        # JSON publishing (POST to the server root) keeps accents and emoji intact;
+        # plain HTTP headers would need special encoding for them.
+        data: dict = {
+            "topic": self.topic,
+            "title": alert.title,
+            "message": alert.body,
+            "priority": 5 if alert.hot else 4,
+            "tags": ["fire"] if alert.hot else ["watch"],
+        }
+        if alert.url:
+            data["click"] = alert.url
+            data["actions"] = [{"action": "view", "label": "Open listing", "url": alert.url}]
+        if alert.image_url:
+            data["attach"] = alert.image_url
+        return data
+
+    def send(self, alert: Alert) -> bool:
+        payload = self.payload(alert)
         for attempt in range(3):
             if self._last_sent is not None:
                 wait = self._min_interval - (time.monotonic() - self._last_sent)
@@ -51,47 +83,37 @@ class TelegramNotifier:
                     self._sleep(wait)
             self._last_sent = time.monotonic()
             try:
-                resp = self.session.post(self.url, json=payload, timeout=20)
+                resp = self.session.post(self.server + "/", json=payload, timeout=20)
             except requests.RequestException as exc:
-                log.warning("Telegram send failed (%s)", type(exc).__name__)  # never log the URL: it has the token
+                log.warning("ntfy send failed (%s)", type(exc).__name__)
                 self._sleep(5 * (attempt + 1))
                 continue
             if resp.status_code == 200:
                 return True
-            if resp.status_code == 429:
-                try:
-                    retry_after = float(resp.json().get("parameters", {}).get("retry_after", 5))
-                except ValueError:
-                    retry_after = 5.0
-                log.warning("Telegram rate limit hit; waiting %.0fs", retry_after)
-                self._sleep(retry_after)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                # ntfy.sh allows bursts of ~60 messages, then about one every 5 s.
+                log.warning("ntfy answered HTTP %s; retrying", resp.status_code)
+                self._sleep(10 * (attempt + 1))
                 continue
-            if resp.status_code >= 500:
-                self._sleep(5 * (attempt + 1))
-                continue
-            try:
-                description = resp.json().get("description", "")
-            except ValueError:
-                description = resp.text[:200]
-            log.error("Telegram rejected the message: HTTP %s %s", resp.status_code, description)
+            log.error("ntfy rejected the message: HTTP %s %s", resp.status_code, resp.text[:200])
             return False
         return False
 
 
-class ConsoleNotifier:
-    """Used when TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are missing: alerts go to the log."""
+class LogNotifier:
+    """Used when NTFY_TOPIC is not set: alerts only go to the log file / console."""
 
-    def send(self, text: str) -> bool:
-        log.info("ALERT (Telegram not configured):\n%s", _strip_tags(text))
+    def send(self, alert: Alert) -> bool:
+        log.info("ALERT (ntfy not configured): %s\n%s\n%s", alert.title, alert.body, alert.url or "")
         return True
 
 
 def build_notifier(config: AppConfig) -> Notifier:
     s = config.secrets
-    if s.telegram_bot_token and s.telegram_chat_id:
-        return TelegramNotifier(s.telegram_bot_token, s.telegram_chat_id)
-    log.warning("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set in .env; alerts will only be logged")
-    return ConsoleNotifier()
+    if s.ntfy_topic:
+        return NtfyNotifier(s.ntfy_topic, server=s.ntfy_server, token=s.ntfy_token)
+    log.warning("NTFY_TOPIC not set in .env; alerts will only be logged")
+    return LogNotifier()
 
 
 # -- deciding and formatting ---------------------------------------------
@@ -115,22 +137,24 @@ def should_alert(event: Event, search: SearchConfig, config: AppConfig, storage:
     return not storage.alert_already_sent(listing.source, listing.listing_id, event.price_huf)
 
 
-def format_alert(event: Event, search: SearchConfig, config: AppConfig) -> str:
+def format_alert(event: Event, search: SearchConfig, config: AppConfig) -> Alert:
     listing = event.listing
     rate = config.eur_huf_rate
-    esc = html.escape
+    hot = is_hot(event.price_huf, search, config)
 
-    head = "📉 Price drop" if event.kind is EventKind.PRICE_DROP else "🆕 New listing"
-    if is_hot(event.price_huf, search, config):
+    head = "📉 Price drop" if event.kind is EventKind.PRICE_DROP else "🆕 New"
+    if hot:
         head = "🔥 " + head
-    lines = [f"{head} · {esc(search.name)}", f"<b>{esc(listing.title)}</b>"]
+    price_short = format_huf(event.price_huf) if event.price_huf is not None else "no price"
+    title = f"{head} · {search.name} · {price_short}"
 
+    lines = [listing.title]
     if event.price_huf is None:
         lines.append("💰 no price given")
     elif listing.currency == "HUF":
         lines.append(f"💰 {format_huf(event.price_huf)} (~{format_eur(event.price_huf / rate)})")
     else:
-        lines.append(f"💰 {listing.price:,.2f} {esc(listing.currency)} (~{format_huf(event.price_huf)})")
+        lines.append(f"💰 {listing.price:,.2f} {listing.currency} (~{format_huf(event.price_huf)})")
 
     if event.kind is EventKind.PRICE_DROP and event.old_price_huf and event.price_huf is not None:
         pct = round(100 * (event.old_price_huf - event.price_huf) / event.old_price_huf)
@@ -144,10 +168,5 @@ def format_alert(event: Event, search: SearchConfig, config: AppConfig) -> str:
         lines.append(f"📈 resale ref {format_eur(ref)} → est. margin {sign}{format_eur(abs(margin))} ({sign}{pct}%)")
 
     where = " · ".join(p for p in (listing.location, SOURCE_LABELS.get(listing.source, listing.source)) if p)
-    lines.append(f"📍 {esc(where)}")
-    lines.append(f'<a href="{esc(listing.url, quote=True)}">Open listing</a>')
-    return "\n".join(lines)
-
-
-def _strip_tags(text: str) -> str:
-    return html.unescape(re.sub(r"<[^>]+>", "", text))
+    lines.append(f"📍 {where}")
+    return Alert(title=title, body="\n".join(lines), url=listing.url, image_url=listing.thumbnail_url, hot=hot)

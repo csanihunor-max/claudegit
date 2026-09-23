@@ -17,5 +17,5 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
     root = logging.getLogger()
     root.handlers[:] = [file_handler, console]
     root.setLevel(level)
-    # urllib3 logs every request URL at DEBUG, which would include the Telegram bot token.
+    # urllib3 logs every request URL at DEBUG; keep that noise (and API URLs) out of the log.
     logging.getLogger("urllib3").setLevel(logging.WARNING)

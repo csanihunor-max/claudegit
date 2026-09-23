@@ -1,4 +1,4 @@
-"""End-to-end pass with a fake Jófogás (real saved pages) and a fake Telegram."""
+"""End-to-end pass with a fake Jófogás (real saved pages) and a fake notifier."""
 
 import copy
 import itertools
@@ -30,8 +30,8 @@ class RecordingNotifier:
     def __init__(self, ok=True):
         self.messages, self.ok = [], ok
 
-    def send(self, text):
-        self.messages.append(text)
+    def send(self, alert):
+        self.messages.append(f"{alert.title}\n{alert.body}")
         return self.ok
 
 
@@ -78,7 +78,7 @@ def test_full_pass_with_real_page(storage):
     second = runner.run_once()
     assert sorted(e.kind.value for e in second.events) == ["new", "price_drop"]
     assert second.alerts_sent == 2
-    new_msg = next(m for m in notifier.messages if "New listing" in m)
+    new_msg = next(m for m in notifier.messages if "🆕 New" in m)
     drop_msg = next(m for m in notifier.messages if "Price drop" in m)
     assert "Raketa Big Zero 2609" in new_msg and "14 000 Ft" in new_msg
     assert drop_msg.startswith("🔥 📉 Price drop · Raketa") and "9 000 Ft" in drop_msg
@@ -106,7 +106,7 @@ def test_failed_source_is_reported_and_other_searches_continue(storage):
     assert summary.kept == 1
 
 
-def test_failed_telegram_send_is_retried_next_pass(storage):
+def test_failed_send_is_retried_next_pass(storage):
     config = make_config(silent_first_pass=False,
                          searches=[{"name": "Seiko", "keywords": ["seiko"], "sources": ["jofogas"]}])
 

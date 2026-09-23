@@ -4,6 +4,7 @@
     python main.py once         a single pass, then exit (for cron)
     python main.py dashboard    local web dashboard
     python main.py test-notify  send a test push notification
+    python main.py cloud-pass --state DUMP --out DIR   one pass for the artifact/cloud mode
 """
 
 from __future__ import annotations
@@ -38,6 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     dash.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to open it from your phone on the same Wi-Fi")
     dash.add_argument("--port", type=int, default=8080)
     sub.add_parser("test-notify", help="send a test push notification via ntfy")
+    cloud = sub.add_parser("cloud-pass", help="one pass using state dumped from the artifact database")
+    cloud.add_argument("--state", required=True, help="directory the artifact database was dumped into")
+    cloud.add_argument("--out", required=True, help="directory for changed documents and batch manifests")
     args = parser.parse_args(argv)
 
     try:
@@ -54,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
         log.info("dashboard on http://%s:%d/", args.host, args.port)
         app.run(host=args.host, port=args.port, debug=False)
         return 0
+
+    if args.command == "cloud-pass":
+        return cloud_pass(config, Path(args.state), Path(args.out))
 
     notifier = build_notifier(config)
     if args.command == "test-notify":
@@ -81,6 +88,33 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         storage.close()
     return 0
+
+
+def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
+    import json
+
+    from watchfinder.cloudsync import CollectingNotifier, export_state, import_state
+    from watchfinder.storage import utcnow
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work_db = out_dir / "work.sqlite3"
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{work_db}{suffix}").unlink(missing_ok=True)
+    storage = Storage(work_db)
+    try:
+        imported = import_state(storage, state_dir)
+        log.info("restored %d listing(s) from %s", len(imported), state_dir)
+        http = HttpClient(config.user_agent, config.request_delay_seconds)
+        notifier = CollectingNotifier()
+        run_at = utcnow()
+        result = Runner(config, storage, build_sources(config, http), notifier).run_once()
+        summary = {"kept": result.kept, "events": len(result.events), "gone": result.gone,
+                   "failures": result.failures}
+        report = export_state(storage, config, imported, out_dir, run_at, summary, notifier.alerts)
+    finally:
+        storage.close()
+    print(json.dumps(report, ensure_ascii=False, indent=1))
+    return 1 if result.failures else 0
 
 
 if __name__ == "__main__":

@@ -50,6 +50,9 @@ blacklist:
   - kártyatartó
   - sapka
   - órajavító
+  # Swatch-made collabs match the Omega search but aren't vintage Omegas
+  - moonswatch
+  - swatch x omega
 
 sources:
   jofogas:

@@ -1,0 +1,174 @@
+"""Cloud mode round trip: pass -> export -> (artifact database) -> dump -> import -> pass."""
+
+import json
+from pathlib import Path
+
+from tests.conftest import make_config
+from watchfinder.cloudsync import CollectingNotifier, doc_id, export_state, import_state, shard_of
+from watchfinder.models import Listing, SearchResult
+from watchfinder.runner import Runner
+from watchfinder.storage import Storage
+
+
+def merge(base, patch):
+    """The artifact database's update: nested objects merge, `__delete__` removes."""
+    out = dict(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and v.get("__delete__") is True:
+            out.pop(k, None)
+        elif isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+class FakeArtifactDb:
+    """Applies batch manifests like ArtifactData does, and dumps like `list/get` with out_dir."""
+
+    def __init__(self):
+        self.docs: dict[tuple[str, str], dict] = {}
+
+    def apply(self, report):
+        for batch in report["batches"]:
+            for w in json.loads(Path(batch).read_text(encoding="utf-8")):
+                key = (w["collection"], w["doc_id"])
+                data = json.loads(Path(w["file_path"]).read_text(encoding="utf-8")) if "file_path" in w else None
+                if w["op"] == "delete":
+                    self.docs.pop(key, None)
+                    continue
+                if w["op"] == "set":
+                    self.docs[key] = data
+                else:
+                    assert key in self.docs, "update of a missing document"
+                    self.docs[key] = merge(self.docs[key], data)
+
+    def listing(self, did):
+        return self.docs[("shards", shard_of(did))]["items"].get(did)
+
+    def listing_ids(self):
+        return {did for (col, _), body in self.docs.items() if col == "shards" for did in body["items"]}
+
+    def set_user_status(self, did, status):
+        # what the page does: db.doc("shards/sNN").update({items: {id: {user_status}}})
+        key = ("shards", shard_of(did))
+        self.docs[key] = merge(self.docs[key], {"items": {did: {"user_status": status}}})
+
+    def dump(self, directory: Path) -> Path:
+        for (collection, did), data in self.docs.items():
+            path = directory / collection / f"{did}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # envelope form, to prove import_state unwraps it
+            path.write_text(json.dumps({"id": did, "version": 1, "data": data}), encoding="utf-8")
+        return directory
+
+
+class Source:
+    def __init__(self):
+        self.listings = []
+
+    def search(self, search):
+        return SearchResult(list(self.listings), complete=True)
+
+
+def L(i, price, title="Raketa 2609"):
+    return Listing("jofogas", i, title, price, "HUF", f"https://www.jofogas.hu/x_{i}.htm", location="Pest")
+
+
+CONFIG = make_config(searches=[{"name": "Raketa", "keywords": ["raketa"], "sources": ["jofogas"],
+                                "max_price_huf": 30000, "reference_price_eur": 60}])
+
+
+def cloud_pass(db: FakeArtifactDb, source: Source, tmp: Path, n: int, day: str | None = None):
+    day = day or f"2026-09-2{n}"
+    state = db.dump(tmp / f"state{n}")
+    storage = Storage(tmp / f"work{n}.sqlite3")
+    imported = import_state(storage, state)
+    notifier = CollectingNotifier()
+    result = Runner(CONFIG, storage, {"jofogas": source}, notifier,
+                    now=lambda: f"{day}T10:00:00+00:00").run_once()
+    report = export_state(storage, CONFIG, imported, tmp / f"out{n}", f"{day}T10:00:00+00:00",
+                          {"kept": result.kept, "failures": result.failures}, notifier.alerts)
+    storage.close()
+    db.apply(report)
+    return report, notifier.alerts
+
+
+def test_round_trip(tmp_path):
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L("1", 20000), L("2", 25000)]
+
+    r1, alerts = cloud_pass(db, source, tmp_path, 1)
+    assert alerts == [] and r1["new_listings"] == 2                    # silent first pass, docs created
+    doc = db.listing("jofogas-1")
+    assert doc["price_huf"] == 20000 and doc["searches"] == ["Raketa"] and doc["history"][0]["huf"] == 20000
+    assert db.docs[("state", "seen")]["seeded"] == ["Raketa|jofogas"]
+    assert db.docs[("meta", "status")]["searches"][0]["reference_price_eur"] == 60
+
+    # Nothing changed: only the two bookkeeping docs are written, no shards.
+    r2, alerts = cloud_pass(db, source, tmp_path, 2)
+    assert alerts == [] and r2["new_listings"] == 0 and r2["changed_listings"] == 0
+    assert len(json.loads(Path(r2["batches"][0]).read_text())) == 2
+
+    # The user marks listing 2 as ignored in the dashboard; then a new ad appears,
+    # listing 1 drops in price and listing 2 drops too.
+    db.set_user_status("jofogas-2", "ignore")
+    source.listings = [L("1", 15000), L("2", 20000), L("3", 9000, "Raketa Big Zero")]
+    r3, alerts = cloud_pass(db, source, tmp_path, 3)
+    titles = {a.title for a in alerts}                                  # not the ignored one:
+    assert titles == {"🔥 🆕 New · Raketa · 9 000 Ft", "📉 Price drop · Raketa · 15 000 Ft"}
+    assert r3["new_listings"] == 1 and r3["changed_listings"] == 2
+    assert db.listing("jofogas-2")["user_status"] == "ignore"                    # update merged, kept
+    assert db.listing("jofogas-2")["price_huf"] == 20000
+    assert [h["huf"] for h in db.listing("jofogas-1")["history"]] == [20000, 15000]
+    assert "Raketa Big Zero" in Path(r3["alerts_file"]).read_text(encoding="utf-8")
+
+    # Same data again: alerts are remembered across runs, so nothing repeats.
+    r4, alerts = cloud_pass(db, source, tmp_path, 4)
+    assert alerts == [] and r4["changed_listings"] == 0
+
+    # Listing 3 disappears (complete result set) -> marked gone, kept.
+    source.listings = [L("1", 15000), L("2", 20000)]
+    cloud_pass(db, source, tmp_path, 5)
+    assert db.listing("jofogas-3")["status"] == "gone"
+
+
+def test_listings_spread_over_16_shard_documents(tmp_path):
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L(str(i), 1000 + i) for i in range(400)]
+    report, _ = cloud_pass(db, source, tmp_path, 1)
+    writes = [w for b in report["batches"] for w in json.loads(Path(b).read_text())]
+    assert len(writes) == 18                                       # 16 shards + seen + status
+    assert len(db.listing_ids()) == 400
+    biggest = max(Path(w["file_path"]).stat().st_size for w in writes)
+    assert biggest < 100_000                                       # far under the 256 KiB document cap
+    # one price change -> only that listing's shard is rewritten
+    source.listings[7] = L("7", 500)
+    report, _ = cloud_pass(db, source, tmp_path, 2)
+    writes = [w for b in report["batches"] for w in json.loads(Path(b).read_text())]
+    assert [(w["collection"], w["doc_id"], w["op"]) for w in writes if w["collection"] == "shards"] == [
+        ("shards", shard_of("jofogas-7"), "update")]
+
+
+def test_shard_of_is_stable():
+    assert shard_of("jofogas-162189005") == shard_of("jofogas-162189005")
+    assert len({shard_of(f"jofogas-{i}") for i in range(500)}) == 16
+
+
+def test_doc_id_is_safe_for_artifact_database():
+    assert doc_id("jofogas", "162189005") == "jofogas-162189005"
+    assert doc_id("ebay", "v1|226512345678|0") == "ebay-v1_226512345678_0"
+
+
+def test_old_gone_listings_are_pruned_unless_marked(tmp_path):
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L("1", 1000), L("2", 1000), L("3", 1000)]
+    cloud_pass(db, source, tmp_path, 1, day="2026-09-01")
+    db.set_user_status("jofogas-2", "bought")
+    source.listings = []
+    cloud_pass(db, source, tmp_path, 2, day="2026-09-02")          # all three gone
+    assert db.listing_ids() == {"jofogas-1", "jofogas-2", "jofogas-3"}
+    report, _ = cloud_pass(db, source, tmp_path, 3, day="2026-10-15")
+    assert report["pruned"] == 2
+    assert db.listing_ids() == {"jofogas-2"}                        # bought one kept
+    assert "jofogas-1" not in db.docs[("state", "seen")]["last_seen"]

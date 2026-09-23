@@ -144,6 +144,35 @@ the port to the internet. On a VPS, use an SSH tunnel instead:
 It can run alongside `run`: SQLite is in WAL mode, so reading and writing at
 the same time is fine.
 
+## Cloud mode: artifact dashboard + hourly check (nothing to run yourself)
+
+Instead of running the tool on your own machine, it can run as a scheduled
+Claude task, with the dashboard as a claude.ai artifact:
+
+- **Dashboard**: the "Watch Deal Board" artifact (`artifact/dashboard.html`),
+  a private claude.ai page that also works in the Claude phone app. Same
+  filters, sorting, margins and Interested / Bought / Ignore buttons as the
+  local dashboard.
+- **Checking**: a Claude Routine starts a fresh cloud session every hour. It
+  dumps the artifact's database, runs `python main.py cloud-pass`, and writes
+  back only what changed.
+- **Alerts**: when a run finds new deals or price drops, it ends with them as
+  its message, and the Claude app sends you a push notification.
+
+Compared with running it yourself: hourly instead of every 15 minutes, and
+each run uses some of your Claude usage.
+
+Database layout (in the artifact): `shards/s00`–`s15` hold every listing as
+`{"items": {id: listing}}` (the page only writes `items.<id>.user_status`),
+`state/seen` holds last-seen times, and `meta/status` holds the last run and
+the search settings the page needs. Gone listings are deleted after 30 days
+unless marked Interested or Bought (an artifact database holds at most 5,000
+documents). The code is in `watchfinder/cloudsync.py`.
+
+To change searches, prices or the blacklist in cloud mode, edit `config.yaml`
+on the `claude/watch-deal-finder-k7kw7z` branch: each run fetches the latest
+version.
+
 ## Running it permanently
 
 ### Raspberry Pi / Linux (laptop or VPS): systemd (recommended)

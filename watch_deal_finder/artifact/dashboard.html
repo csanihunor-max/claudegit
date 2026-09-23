@@ -1,0 +1,304 @@
+<title>Watch Deal Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #edf0ee; --surface: #ffffff; --ink: #17201b; --muted: #5b6861; --line: #d6ddd8;
+    --accent: #2d5b7a; --accent-ink: #ffffff; --chip: #e4e9e6;
+    --hot: #c4480f; --good: #2a7a4b; --bad: #b3261e;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0f1311; --surface: #171c19; --ink: #e6ece8; --muted: #97a39c; --line: #2a322d;
+      --accent: #7fb2d6; --accent-ink: #0f1311; --chip: #222924;
+      --hot: #f08a4b; --good: #6bcb8f; --bad: #f28b82;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0f1311; --surface: #171c19; --ink: #e6ece8; --muted: #97a39c; --line: #2a322d;
+    --accent: #7fb2d6; --accent-ink: #0f1311; --chip: #222924;
+    --hot: #f08a4b; --good: #6bcb8f; --bad: #f28b82;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--ground); color: var(--ink); font: 15px/1.45 var(--sans); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 40px; }
+  header { display: grid; gap: 12px; margin-bottom: 14px; }
+  .titlebar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+  h1 { font-size: 21px; font-weight: 700; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .status { font: 12.5px/1.4 var(--mono); color: var(--muted); }
+  .status b { color: var(--ink); font-weight: 600; }
+  .status .warn { color: var(--bad); }
+  .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .filters label { display: grid; gap: 3px; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  select, input { font: 14px var(--sans); padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px;
+                  background: var(--surface); color: var(--ink); width: 100%; }
+  select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .refline { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+  .notice { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--muted); }
+  .list { display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 128px 130px auto; gap: 14px; align-items: center;
+         background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .row.hot { border-color: color-mix(in srgb, var(--hot) 55%, var(--line)); }
+  .row.dim { opacity: .62; }
+  .thumb { width: 92px; height: 70px; border-radius: 7px; object-fit: cover; background: var(--chip); display: block; }
+  .title { font-weight: 600; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+  .title:hover { text-decoration: underline; }
+  .meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--ink); }
+  .chip.hot { background: var(--hot); color: #fff; }
+  .chip.gone { background: var(--bad); color: #fff; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .price { font: 600 15px var(--mono); white-space: nowrap; }
+  .sub { font: 12px var(--mono); color: var(--muted); }
+  .down { color: var(--good); } .up { color: var(--bad); }
+  .margin { font: 600 15px var(--mono); }
+  .margin.pos { color: var(--good); } .margin.neg { color: var(--bad); }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .actions button { font: 500 13px var(--sans); padding: 7px 10px; border-radius: 8px; cursor: pointer;
+                    border: 1px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; }
+  .actions button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .actions button:disabled { cursor: default; opacity: .6; }
+  @media (max-width: 760px) {
+    .row { grid-template-columns: 80px minmax(0, 1fr); grid-template-areas: "thumb info" "price margin" "actions actions"; gap: 10px 12px; }
+    .c-thumb { grid-area: thumb; } .c-info { grid-area: info; } .c-price { grid-area: price; }
+    .c-margin { grid-area: margin; text-align: right; } .c-actions { grid-area: actions; }
+    .thumb { width: 80px; height: 62px; }
+    .actions button { flex: 1; padding: 10px 4px; }
+  }
+  @media (prefers-reduced-motion: no-preference) { .actions button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="titlebar">
+      <h1>Watch Deal Board</h1>
+      <div class="status" id="status">Connecting to the deal database…</div>
+    </div>
+    <div class="filters">
+      <label for="f-search">Search<select id="f-search"><option value="">All searches</option></select></label>
+      <label for="f-source">Source<select id="f-source">
+        <option value="">All sources</option><option value="jofogas">Jófogás</option><option value="ebay">eBay</option>
+      </select></label>
+      <label for="f-max">Max price (Ft)<input id="f-max" inputmode="numeric" placeholder="any"></label>
+      <label for="f-sort">Sort<select id="f-sort">
+        <option value="newest">Newest</option><option value="cheapest">Cheapest</option><option value="margin">Best margin</option>
+      </select></label>
+      <label for="f-view">Show<select id="f-view">
+        <option value="active">Active candidates</option><option value="interested">Interested</option>
+        <option value="bought">Bought</option><option value="ignore">Ignored</option><option value="gone">Gone</option>
+      </select></label>
+    </div>
+    <div class="refline" id="refline"></div>
+  </header>
+  <main class="list" id="list"><div class="notice">Loading listings…</div></main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SOURCE_LABELS = { jofogas: "Jófogás", ebay: "eBay" };
+const huf = (n) => n == null ? "–" : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " Ft";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const state = { active: [], gone: [], meta: null, db: null, loaded: false, readOnly: false, busy: new Set() };
+
+function ago(iso) {
+  if (!iso) return "";
+  const mins = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (mins < 60) return Math.max(1, Math.round(mins)) + " min ago";
+  if (mins < 48 * 60) return Math.round(mins / 60) + " h ago";
+  return Math.round(mins / 1440) + " days ago";
+}
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+function decorate(doc, selectedSearch) {
+  const meta = state.meta || {};
+  const rate = meta.eur_huf_rate || 395, ratio = meta.hot_deal_ratio || 0.5;
+  const refs = (meta.searches || [])
+    .filter((s) => (doc.searches || []).includes(s.name) && s.reference_price_eur && (!selectedSearch || s.name === selectedSearch))
+    .map((s) => s.reference_price_eur);
+  const ref = refs.length ? Math.max(...refs) : null;
+  const eur = doc.price_huf == null ? null : doc.price_huf / rate;
+  const margin = ref != null && eur != null ? ref - eur : null;
+  const points = [];
+  for (const h of doc.history || []) if (!points.length || points[points.length - 1] !== h.huf) points.push(h.huf);
+  return { ...doc, ref, eur, margin, marginPct: margin == null ? null : Math.round(100 * margin / ref),
+           hot: ref != null && doc.price_huf != null && doc.price_huf <= ref * rate * ratio, points };
+}
+
+function historyText(points) {
+  if (points.length < 2) return "";
+  const shown = points.slice(-4);
+  return (points.length > 4 ? "… " : "") + shown.map((p, i) =>
+    (i ? ` <span class="${p < shown[i - 1] ? "down" : "up"}">→</span> ` : "") + huf(p).replace(" Ft", "")).join("") + " Ft";
+}
+
+function visible() {
+  const view = $("f-view").value, search = $("f-search").value, source = $("f-source").value;
+  const max = parseInt($("f-max").value.replace(/\D/g, ""), 10);
+  let base;
+  if (view === "active") base = state.active.filter((d) => d.user_status !== "ignore");
+  else if (view === "gone") base = state.gone;
+  else base = [...state.active, ...state.gone].filter((d) => d.user_status === view);
+  let items = base
+    .filter((d) => !search || (d.searches || []).includes(search))
+    .filter((d) => !source || d.source === source)
+    .filter((d) => isNaN(max) || (d.price_huf != null && d.price_huf <= max))
+    .map((d) => decorate(d, search));
+  const sort = $("f-sort").value;
+  if (sort === "newest") items.sort((a, b) => String(b.first_seen).localeCompare(String(a.first_seen)));
+  else if (sort === "cheapest") items.sort((a, b) => (a.price_huf ?? Infinity) - (b.price_huf ?? Infinity));
+  else items.sort((a, b) => (b.margin ?? -Infinity) - (a.margin ?? -Infinity));
+  return items;
+}
+
+function rowHtml(it) {
+  const price = it.currency === "HUF" ? huf(it.price_huf) : it.price == null ? "–" : `${Number(it.price).toFixed(2)} ${esc(it.currency)}`;
+  const priceSub = it.currency === "HUF" ? (it.eur == null ? "" : `~${Math.round(it.eur)} €`) : huf(it.price_huf);
+  const sign = it.margin != null && it.margin < 0 ? "−" : "+";
+  const margin = it.margin == null ? `<span class="sub">no reference</span>`
+    : `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
+       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ref ${it.ref} €</div>`;
+  const pct = Math.round(100 * ((state.meta && state.meta.hot_deal_ratio) || 0.5));
+  const chips = (it.hot ? `<span class="chip hot">🔥 ≤ ${pct}% of ref</span>` : "")
+    + (it.status === "gone" ? `<span class="chip gone">gone ${esc(ago(it.gone_at))}</span>` : "")
+    + `<span class="chip">${esc(SOURCE_LABELS[it.source] || it.source)}</span>`
+    + (it.searches || []).map((s) => `<span class="chip">${esc(s)}</span>`).join("");
+  const thumb = it.thumbnail_url
+    ? `<img class="thumb" loading="lazy" referrerpolicy="no-referrer" src="${esc(it.thumbnail_url)}" alt=""
+         onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'thumb'}))">`
+    : `<div class="thumb"></div>`;
+  const buttons = [["interested", "★ Interested"], ["bought", "✓ Bought"], ["ignore", "✕ Ignore"]].map(([s, label]) =>
+    `<button type="button" data-status="${s}" class="${it.user_status === s ? "on" : ""}"
+       ${state.readOnly || state.busy.has(it._id) ? "disabled" : ""}>${label}</button>`).join("");
+  return `<article class="row ${it.hot ? "hot" : ""} ${it.user_status === "ignore" || it.status === "gone" ? "dim" : ""}"
+    data-id="${esc(it._id)}" data-shard="${esc(it._shard)}">
+    <a class="c-thumb" href="${esc(it.url)}" target="_blank" rel="noopener">${thumb}</a>
+    <div class="c-info">
+      <a class="title" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+      <div class="meta">${esc(it.location || "")}${it.location ? " · " : ""}first seen ${esc(ago(it.first_seen))}</div>
+      <div class="chips">${chips}</div>
+    </div>
+    <div class="c-price"><div class="price">${price}</div><div class="sub">${priceSub}</div>
+      <div class="sub">${historyText(it.points)}</div></div>
+    <div class="c-margin">${margin}</div>
+    <div class="c-actions actions">${buttons}</div>
+  </article>`;
+}
+
+function render() {
+  const items = visible();
+  if (!state.db || !state.loaded) return;
+  if (!state.active.length && !state.gone.length) {
+    $("list").innerHTML = `<div class="notice">No listings yet. They appear after the first hourly check has run.</div>`;
+  } else if (!items.length) {
+    $("list").innerHTML = `<div class="notice">Nothing matches these filters.</div>`;
+  } else {
+    $("list").innerHTML = items.map(rowHtml).join("");
+  }
+  renderStatus(items.length);
+  renderRefline();
+}
+
+function renderStatus(shown) {
+  const m = state.meta;
+  if (!m) { $("status").textContent = `${state.active.length} active listings`; return; }
+  const s = m.summary || {};
+  const fails = (s.failures || []).length;
+  $("status").innerHTML = `last check <b>${esc(clock(m.last_run))}</b> (${esc(ago(m.last_run))}) · `
+    + `<b>${state.active.length}</b> active · ${shown} shown`
+    + (fails ? ` · <span class="warn">${fails} search${fails > 1 ? "es" : ""} failed</span>` : "");
+}
+
+function renderRefline() {
+  const name = $("f-search").value;
+  const info = ((state.meta && state.meta.searches) || []).find((s) => s.name === name);
+  if (!info) { $("refline").textContent = ""; return; }
+  const parts = [];
+  if (info.max_price_huf) parts.push(`alerts up to ${huf(info.max_price_huf)}`);
+  if (info.reference_price_eur) parts.push(`resale reference ${info.reference_price_eur} €`);
+  const rate = state.meta.eur_huf_rate || 395;
+  const ebay = state.active.filter((d) => d.source === "ebay" && (d.searches || []).includes(name) && d.price_huf)
+    .map((d) => d.price_huf / rate).sort((a, b) => a - b);
+  if (ebay.length) parts.push(`eBay active median ${Math.round(ebay[Math.floor(ebay.length / 2)])} € (${ebay.length})`);
+  $("refline").textContent = parts.join(" · ");
+}
+
+function fillSearchOptions() {
+  const sel = $("f-search"), current = sel.value;
+  const names = ((state.meta && state.meta.searches) || []).map((s) => s.name);
+  sel.innerHTML = `<option value="">All searches</option>` + names.map((n) => `<option>${esc(n)}</option>`).join("");
+  if (names.includes(current)) sel.value = current;
+}
+
+$("list").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-status]");
+  if (!btn || !state.db || state.readOnly) return;
+  const row = btn.closest(".row"), id = row.dataset.id;
+  const status = btn.classList.contains("on") ? null : btn.dataset.status;  // click again to clear
+  state.busy.add(id); render();
+  try {
+    // Nested objects merge, so this touches only this listing's user_status.
+    await state.db.doc("shards/" + row.dataset.shard).update({ items: { [id]: { user_status: status } } });
+  } catch (e) {
+    if (e && e.code === "invalid_argument") state.readOnly = true;
+    $("status").textContent = "Couldn't save that change. Try again in a moment.";
+  } finally {
+    state.busy.delete(id); render();
+  }
+});
+
+["f-search", "f-source", "f-sort", "f-view"].forEach((id) => $(id).addEventListener("change", () => { savePrefs(); render(); }));
+$("f-max").addEventListener("input", () => { savePrefs(); render(); });
+
+function savePrefs() {
+  try {
+    localStorage.setItem("wdb-filters", JSON.stringify(Object.fromEntries(
+      ["f-search", "f-source", "f-max", "f-sort", "f-view"].map((id) => [id, $(id).value]))));
+  } catch (e) {}
+}
+function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem("wdb-filters") || "{}");
+    for (const [id, v] of Object.entries(p)) if ($(id) && id !== "f-search") $(id).value = v;
+    return p["f-search"] || "";
+  } catch (e) { return ""; }
+}
+
+const wantedSearch = loadPrefs();
+
+(async () => {
+  const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+  if (!db) {
+    $("status").textContent = "Deal database unavailable";
+    $("list").innerHTML = `<div class="notice">Open this page on claude.ai (signed in) to see the listings.</div>`;
+    return;
+  }
+  state.db = db;
+  const onErr = (e) => {
+    $("list").innerHTML = `<div class="notice">Lost the connection to the deal database (${esc(e && e.code)}). Reload the page.</div>`;
+  };
+  db.doc("meta/status").onSnapshot((snap) => {
+    state.meta = snap.exists ? snap.data() : null;
+    fillSearchOptions();
+    if (wantedSearch && !$("f-search").value) $("f-search").value = wantedSearch;
+    render();
+  }, onErr);
+  // Listings live in 16 shard documents: {items: {id: listing}}.
+  db.collection("shards").limit(100).onSnapshot((snap) => {
+    const all = [];
+    for (const d of snap.docs) {
+      const items = (d.data() || {}).items || {};
+      for (const [id, item] of Object.entries(items)) if (item && item.listing_id) all.push({ ...item, _id: id, _shard: d.id });
+    }
+    state.active = all.filter((x) => x.status !== "gone");
+    state.gone = all.filter((x) => x.status === "gone");
+    state.loaded = true;
+    render();
+  }, onErr);
+})();
+</script>

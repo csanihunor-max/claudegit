@@ -42,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     cloud = sub.add_parser("cloud-pass", help="one pass using state dumped from the artifact database")
     cloud.add_argument("--state", required=True, help="directory the artifact database was dumped into")
     cloud.add_argument("--out", required=True, help="directory for changed documents and batch manifests")
+    cloud.add_argument("--allow-empty", action="store_true",
+                       help="allow an empty dump (only for the very first run; otherwise a failed dump would "
+                            "rebuild the database from scratch)")
     args = parser.parse_args(argv)
 
     try:
@@ -60,7 +63,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "cloud-pass":
-        return cloud_pass(config, Path(args.state), Path(args.out))
+        state_dir = Path(args.state)
+        if not args.allow_empty and not any((state_dir / "shards").glob("*.json")):
+            print(f"No shard files in {state_dir / 'shards'}: the database dump failed or is empty. "
+                  "Refusing to run (pass --allow-empty for a first run).", file=sys.stderr)
+            return 2
+        return cloud_pass(config, state_dir, Path(args.out))
 
     notifier = build_notifier(config)
     if args.command == "test-notify":

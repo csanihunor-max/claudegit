@@ -15,6 +15,7 @@ from typing import Callable, Protocol
 
 import requests
 
+from .comps import comps_query, ebay_sold_url
 from .config import AppConfig, SearchConfig
 from .models import Event, EventKind
 from .pricing import format_eur, format_huf
@@ -32,6 +33,7 @@ class Alert:
     url: str | None = None          # opened when the notification is tapped
     image_url: str | None = None    # listing thumbnail, shown in the notification
     hot: bool = False
+    comps_url: str | None = None    # eBay sold items for the same model, to check the reference
 
 
 class Notifier(Protocol):
@@ -70,6 +72,8 @@ class NtfyNotifier:
         if alert.url:
             data["click"] = alert.url
             data["actions"] = [{"action": "view", "label": "Open listing", "url": alert.url}]
+        if alert.comps_url:
+            data.setdefault("actions", []).append({"action": "view", "label": "eBay sold", "url": alert.comps_url})
         if alert.image_url:
             data["attach"] = alert.image_url
         return data
@@ -104,7 +108,8 @@ class LogNotifier:
     """Used when NTFY_TOPIC is not set: alerts only go to the log file / console."""
 
     def send(self, alert: Alert) -> bool:
-        log.info("ALERT (ntfy not configured): %s\n%s\n%s", alert.title, alert.body, alert.url or "")
+        log.info("ALERT (ntfy not configured): %s\n%s\n%s%s", alert.title, alert.body, alert.url or "",
+                 f"\nSold comps: {alert.comps_url}" if alert.comps_url else "")
         return True
 
 
@@ -169,4 +174,7 @@ def format_alert(event: Event, search: SearchConfig, config: AppConfig) -> Alert
 
     where = " · ".join(p for p in (listing.location, SOURCE_LABELS.get(listing.source, listing.source)) if p)
     lines.append(f"📍 {where}")
-    return Alert(title=title, body="\n".join(lines), url=listing.url, image_url=listing.thumbnail_url, hot=hot)
+    comps = ebay_sold_url(comps_query(listing.title, search.keywords), config.ebay.sold_domain,
+                          config.ebay.category_ids)
+    return Alert(title=title, body="\n".join(lines), url=listing.url, image_url=listing.thumbnail_url, hot=hot,
+                 comps_url=comps)

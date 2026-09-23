@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .comps import comps_query
 from .config import AppConfig
 from .notify import Alert
 from .storage import USER_STATUSES, Storage
@@ -45,6 +46,7 @@ PRUNE_GONE_AFTER_DAYS = 30
 ENGINE_FIELDS = (
     "source", "listing_id", "title", "price", "currency", "price_huf", "url", "location",
     "thumbnail_url", "category", "first_seen", "status", "gone_at", "searches", "history", "alerted",
+    "comps_query",
 )
 
 _BAD_ID_CHARS = re.compile(r"[^A-Za-z0-9_\-.~:@+]")
@@ -142,8 +144,9 @@ def import_state(storage: Storage, state_dir: Path) -> dict[str, dict[str, Any]]
 # -- writing the changes ---------------------------------------------------
 
 
-def listing_docs(storage: Storage) -> dict[str, dict[str, Any]]:
+def listing_docs(storage: Storage, config: AppConfig) -> dict[str, dict[str, Any]]:
     conn = storage.conn
+    keywords = {s.name: s.keywords for s in config.searches}
     searches: dict[tuple[str, str], list[str]] = {}
     for r in conn.execute("SELECT source, listing_id, search_name FROM listing_searches ORDER BY search_name"):
         searches.setdefault((r[0], r[1]), []).append(r[2])
@@ -163,6 +166,8 @@ def listing_docs(storage: Storage) -> dict[str, dict[str, Any]]:
             "thumbnail_url": r["thumbnail_url"], "category": r["category"], "first_seen": r["first_seen"],
             "status": r["status"], "gone_at": r["gone_at"], "searches": searches.get(key, []),
             "history": history.get(key, []), "alerted": alerted.get(key, []),
+            # model words for the dashboard's "eBay sold" link
+            "comps_query": comps_query(r["title"], [k for n in searches.get(key, []) for k in keywords.get(n, ())]),
         }
     return docs
 
@@ -211,7 +216,7 @@ def export_state(
     by_shard: dict[str, dict[str, Any]] = {}
     new_count = changed_count = 0
     dirty: set[str] = set()
-    for did, doc in listing_docs(storage).items():
+    for did, doc in listing_docs(storage, config).items():
         shard = shard_of(did)
         by_shard.setdefault(shard, {})[did] = doc
         before = imported.get(did)
@@ -242,11 +247,14 @@ def export_state(
     add("set", META, STATUS, {
         "last_run": run_at,
         "summary": summary,
-        "alerts": [{"title": a.title, "body": a.body, "url": a.url} for a in alerts],
+        "alerts": [{"title": a.title, "body": a.body, "url": a.url, "comps_url": a.comps_url} for a in alerts],
         "eur_huf_rate": config.eur_huf_rate,
         "hot_deal_ratio": config.hot_deal_ratio,
+        "ebay_sold_domain": config.ebay.sold_domain,
+        "ebay_category": config.ebay.category_ids,
         "searches": [
-            {"name": s.name, "max_price_huf": s.max_price_huf, "reference_price_eur": s.reference_price_eur}
+            {"name": s.name, "keywords": list(s.keywords), "max_price_huf": s.max_price_huf,
+             "reference_price_eur": s.reference_price_eur}
             for s in config.searches
         ],
     })
@@ -259,7 +267,10 @@ def export_state(
 
     alerts_md = out_dir / "alerts.md"
     alerts_md.write_text(
-        "\n\n".join(f"{a.title}\n{a.body}\n{a.url or ''}".strip() for a in alerts) or "No new deals.",
+        "\n\n".join(
+            f"{a.title}\n{a.body}\n{a.url or ''}" + (f"\nSold comps: {a.comps_url}" if a.comps_url else "")
+            for a in alerts
+        ) or "No new deals.",
         encoding="utf-8",
     )
     report = {

@@ -39,6 +39,8 @@
                   background: var(--surface); color: var(--ink); width: 100%; }
   select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .refline { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+  .refline a, .comps { color: var(--accent); text-underline-offset: 2px; }
+  .comps { font: 12px var(--sans); white-space: nowrap; }
   .notice { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--muted); }
   .list { display: grid; gap: 8px; }
   .row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 128px 130px auto; gap: 14px; align-items: center;
@@ -130,6 +132,14 @@ function decorate(doc, selectedSearch) {
            hot: ref != null && doc.price_huf != null && doc.price_huf <= ref * rate * ratio, points };
 }
 
+// eBay "sold items" search: what this model actually sold for. Opens in the browser.
+function soldUrl(query) {
+  const m = state.meta || {};
+  const cat = String(m.ebay_category || "31387").split(",")[0];
+  return `https://www.${m.ebay_sold_domain || "ebay.de"}/sch/i.html?_nkw=${encodeURIComponent(query).replace(/%20/g, "+")}`
+    + `&LH_Sold=1&LH_Complete=1` + (cat ? `&_sacat=${encodeURIComponent(cat)}` : "");
+}
+
 function historyText(points) {
   if (points.length < 2) return "";
   const shown = points.slice(-4);
@@ -160,9 +170,12 @@ function rowHtml(it) {
   const price = it.currency === "HUF" ? huf(it.price_huf) : it.price == null ? "–" : `${Number(it.price).toFixed(2)} ${esc(it.currency)}`;
   const priceSub = it.currency === "HUF" ? (it.eur == null ? "" : `~${Math.round(it.eur)} €`) : huf(it.price_huf);
   const sign = it.margin != null && it.margin < 0 ? "−" : "+";
-  const margin = it.margin == null ? `<span class="sub">no reference</span>`
+  const comps = it.comps_query
+    ? `<div><a class="comps" href="${esc(soldUrl(it.comps_query))}" target="_blank" rel="noopener"
+         title="eBay sold items: ${esc(it.comps_query)}">eBay sold ↗</a></div>` : "";
+  const margin = it.margin == null ? `<span class="sub">no reference</span>${comps}`
     : `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
-       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ref ${it.ref} €</div>`;
+       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ref ${it.ref} €</div>${comps}`;
   const pct = Math.round(100 * ((state.meta && state.meta.hot_deal_ratio) || 0.5));
   const chips = (it.hot ? `<span class="chip hot">🔥 ≤ ${pct}% of ref</span>` : "")
     + (it.status === "gone" ? `<span class="chip gone">gone ${esc(ago(it.gone_at))}</span>` : "")
@@ -219,13 +232,24 @@ function renderRefline() {
   const info = ((state.meta && state.meta.searches) || []).find((s) => s.name === name);
   if (!info) { $("refline").textContent = ""; return; }
   const parts = [];
-  if (info.max_price_huf) parts.push(`alerts up to ${huf(info.max_price_huf)}`);
-  if (info.reference_price_eur) parts.push(`resale reference ${info.reference_price_eur} €`);
+  if (info.max_price_huf) parts.push(esc(`alerts up to ${huf(info.max_price_huf)}`));
+  if (info.reference_price_eur) parts.push(esc(`resale reference ${info.reference_price_eur} €`));
+  const kw = (info.keywords && info.keywords[0]) || name;
+  parts.push(`<a href="${esc(soldUrl(kw))}" target="_blank" rel="noopener">check eBay sold prices ↗</a>`);
+  const median = (xs) => {
+    const s = [...xs].sort((a, b) => a - b), m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  // Ads that disappeared in the last 30 days: sold or withdrawn, at their last asking price.
+  const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
+  const gone = state.gone.filter((d) => d.source === "jofogas" && (d.searches || []).includes(name)
+    && d.price_huf && (d.gone_at || "") >= monthAgo).map((d) => d.price_huf);
+  if (gone.length) parts.push(esc(`Jófogás: ${gone.length} gone in 30 days, median last price ${huf(median(gone))}`));
   const rate = state.meta.eur_huf_rate || 395;
   const ebay = state.active.filter((d) => d.source === "ebay" && (d.searches || []).includes(name) && d.price_huf)
-    .map((d) => d.price_huf / rate).sort((a, b) => a - b);
-  if (ebay.length) parts.push(`eBay active median ${Math.round(ebay[Math.floor(ebay.length / 2)])} € (${ebay.length})`);
-  $("refline").textContent = parts.join(" · ");
+    .map((d) => d.price_huf / rate);
+  if (ebay.length) parts.push(esc(`eBay active median ${Math.round(median(ebay))} € (${ebay.length})`));
+  $("refline").innerHTML = parts.join(" · ");
 }
 
 function fillSearchOptions() {

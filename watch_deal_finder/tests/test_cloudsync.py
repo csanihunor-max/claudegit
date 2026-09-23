@@ -103,7 +103,10 @@ def test_round_trip(tmp_path):
     doc = db.listing("jofogas-1")
     assert doc["price_huf"] == 20000 and doc["searches"] == ["Raketa"] and doc["history"][0]["huf"] == 20000
     assert db.docs[("state", "seen")]["seeded"] == ["Raketa|jofogas"]
-    assert db.docs[("meta", "status")]["searches"][0]["reference_price_eur"] == 60
+    status = db.docs[("meta", "status")]
+    assert status["searches"][0]["reference_price_eur"] == 60 and status["searches"][0]["keywords"] == ["raketa"]
+    assert status["ebay_sold_domain"] == "ebay.de"
+    assert doc["comps_query"] == "raketa 2609"                      # model words for the "eBay sold" link
 
     # Nothing changed: only the two bookkeeping docs are written, no shards.
     r2, alerts = cloud_pass(db, source, tmp_path, 2)
@@ -121,7 +124,9 @@ def test_round_trip(tmp_path):
     assert db.listing("jofogas-2")["user_status"] == "ignore"                    # update merged, kept
     assert db.listing("jofogas-2")["price_huf"] == 20000
     assert [h["huf"] for h in db.listing("jofogas-1")["history"]] == [20000, 15000]
-    assert "Raketa Big Zero" in Path(r3["alerts_file"]).read_text(encoding="utf-8")
+    alerts_text = Path(r3["alerts_file"]).read_text(encoding="utf-8")
+    assert "Raketa Big Zero" in alerts_text
+    assert "Sold comps: https://www.ebay.de/sch/i.html?_nkw=raketa+big+zero&LH_Sold=1" in alerts_text
 
     # Same data again: alerts are remembered across runs, so nothing repeats.
     r4, alerts = cloud_pass(db, source, tmp_path, 4)

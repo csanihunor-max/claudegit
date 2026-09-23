@@ -28,6 +28,8 @@
   select, input { font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px;
                   background: var(--surface); color: var(--text); width: 100%; }
   .refline { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 1.2em; }
+  .refline a, .comps { color: var(--accent); }
+  .comps { font-size: 12px; white-space: nowrap; }
   main { max-width: 1200px; margin: 0 auto; padding: 0 16px 32px; }
   .list { display: flex; flex-direction: column; gap: 8px; }
   .row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 120px 130px auto; gap: 12px; align-items: center;
@@ -141,9 +143,10 @@ function render(items) {
     const price = it.currency === "HUF" ? huf(it.price_huf)
       : it.price == null ? "–" : `${it.price.toFixed(2)} ${esc(it.currency)}`;
     const priceSub = it.currency === "HUF" ? eur(it.price_eur) : huf(it.price_huf);
-    const margin = it.margin_eur == null ? `<span class="sub">no reference</span>`
+    const comps = it.comps_url ? `<a class="comps" href="${esc(it.comps_url)}" target="_blank" rel="noopener">eBay sold ↗</a>` : "";
+    const margin = it.margin_eur == null ? `<span class="sub">no reference</span><div>${comps}</div>`
       : `<div class="margin ${it.margin_eur >= 0 ? "pos" : "neg"}">${it.margin_eur >= 0 ? "+" : "−"}${Math.abs(Math.round(it.margin_eur))} €</div>
-         <div class="sub">${it.margin_eur >= 0 ? "" : "−"}${Math.abs(it.margin_pct)}% · ref ${it.reference_eur} €</div>`;
+         <div class="sub">${it.margin_eur >= 0 ? "" : "−"}${Math.abs(it.margin_pct)}% · ref ${it.reference_eur} €</div><div>${comps}</div>`;
     const chips = (it.hot ? `<span class="chip hot">🔥 ≤ {{ hot_pct }}% of ref</span>` : "")
       + (it.status === "gone" ? `<span class="chip gone">gone</span>` : "")
       + `<span class="chip">${esc(it.source_label)}</span>`
@@ -175,8 +178,10 @@ function renderRefline() {
   const parts = [];
   if (info.max_price_huf) parts.push(`alert limit ${huf(info.max_price_huf)}`);
   if (info.reference_price_eur) parts.push(`resale reference ${info.reference_price_eur} €`);
+  parts.push(`<a href="${esc(info.comps_url)}" target="_blank" rel="noopener">check eBay sold prices ↗</a>`);
+  if (info.jofogas_gone_count) parts.push(`Jófogás: ${info.jofogas_gone_count} ads gone in 30 days, median last price ${huf(info.jofogas_gone_median_huf)}`);
   if (info.ebay_median_eur != null) parts.push(`eBay active median ${info.ebay_median_eur} € (${info.ebay_count} listings)`);
-  $("refline").textContent = parts.join(" · ");
+  $("refline").innerHTML = parts.map((p) => p.startsWith("<a ") ? p : esc(p)).join(" · ");
 }
 
 async function load() {

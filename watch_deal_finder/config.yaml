@@ -71,6 +71,9 @@ sources:
     category_ids: "31387"     # Wristwatches
     limit: 50
     notify: false             # eBay is for price comparison; set true to get alerts too
+    # "eBay sold" links on the dashboard and in alerts open this site's sold-items
+    # search (works without API keys, even with enabled: false).
+    sold_domain: ebay.de
 
 # Optional: only keep listings whose category path contains one of these
 # (case/accent-insensitive). Empty = no category filter.

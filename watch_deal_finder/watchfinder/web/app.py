@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
 
 from flask import Flask, abort, jsonify, render_template, request
 
+from ..comps import comps_query, ebay_sold_url
 from ..config import AppConfig
 from ..notify import SOURCE_LABELS
 from ..storage import USER_STATUSES, Storage
@@ -81,19 +83,28 @@ def create_app(config: AppConfig) -> Flask:
     def searches():
         storage = open_storage()
         try:
-            rows = storage.dashboard_rows()
+            rows = storage.dashboard_rows(include_gone=True)
         finally:
             storage.close()
+        month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         out = []
         for s in config.searches:
-            ebay_prices = [r["price_huf"] / config.eur_huf_rate for r in rows
-                           if r["source"] == "ebay" and s.name in r["searches"] and r["price_huf"]]
+            mine = [r for r in rows if s.name in r["searches"] and r["price_huf"]]
+            ebay_prices = [r["price_huf"] / config.eur_huf_rate for r in mine
+                           if r["source"] == "ebay" and r["status"] == "active"]
+            # Ads that disappeared recently: sold or withdrawn, at their last asking price.
+            gone_prices = [r["price_huf"] for r in mine if r["source"] == "jofogas" and r["status"] == "gone"
+                           and (r["gone_at"] or "") >= month_ago]
             out.append({
                 "name": s.name,
                 "max_price_huf": s.max_price_huf,
                 "reference_price_eur": s.reference_price_eur,
                 "ebay_median_eur": round(median(ebay_prices)) if ebay_prices else None,
                 "ebay_count": len(ebay_prices),
+                "jofogas_gone_median_huf": round(median(gone_prices)) if gone_prices else None,
+                "jofogas_gone_count": len(gone_prices),
+                "comps_url": ebay_sold_url(comps_query(s.keywords[0], s.keywords), config.ebay.sold_domain,
+                                           config.ebay.category_ids),
             })
         return jsonify(out)
 
@@ -132,6 +143,8 @@ def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | Non
             if s.name in row["searches"] and s.reference_price_eur
             and (selected_search is None or s.name == selected_search)]
     reference = max(refs) if refs else None
+    keywords = [k for s in config.searches if s.name in row["searches"] for k in s.keywords]
+    comps_url = ebay_sold_url(comps_query(row["title"], keywords), config.ebay.sold_domain, config.ebay.category_ids)
     price_huf = row["price_huf"]
     price_eur = price_huf / rate if price_huf is not None else None
     margin = reference - price_eur if reference is not None and price_eur is not None else None
@@ -158,4 +171,5 @@ def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | Non
         "user_status": row["user_status"],
         "searches": row["searches"],
         "price_history": row["price_history"],
+        "comps_url": comps_url,
     }

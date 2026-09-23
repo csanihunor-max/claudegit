@@ -121,3 +121,14 @@ def test_ntfy_rejection_returns_false():
     session = FakeSession([FakeResp(403, '{"error":"forbidden"}')])
     ntfy = NtfyNotifier("deals", session=session, sleep=lambda s: None, min_interval=0)
     assert ntfy.send(Alert(title="t", body="b")) is False
+
+
+def test_alert_links_to_ebay_sold_items_for_the_model(config, raketa):
+    alert = format_alert(Event(EventKind.NEW, "Raketa", listing(title="Rakéta Kopernikusz 2628"), 20000),
+                         raketa, config)
+    assert alert.comps_url == (
+        "https://www.ebay.de/sch/i.html?_nkw=raketa+copernicus+2628&LH_Sold=1&LH_Complete=1&_sacat=31387")
+    session = FakeSession([FakeResp(200)])
+    NtfyNotifier("t", session=session, sleep=lambda s: None, min_interval=0).send(alert)
+    labels = [a["label"] for a in session.calls[0][1]["actions"]]
+    assert labels == ["Open listing", "eBay sold"]

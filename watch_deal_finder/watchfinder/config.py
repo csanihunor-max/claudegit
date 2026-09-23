@@ -45,6 +45,8 @@ class EbayConfig:
     limit: int = 50
     # eBay is mainly for price comparison; alerts for eBay listings are off by default.
     notify: bool = False
+    # Site used for the "eBay sold" links (no API key needed: they open in your browser).
+    sold_domain: str = "ebay.de"
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,7 @@ def parse_config(raw: dict[str, Any], base_dir: Path = Path("."), environ: Any =
         category_ids=str(eb.get("category_ids", "31387")),
         limit=int(eb.get("limit", 50)),
         notify=bool(eb.get("notify", False)),
+        sold_domain=str(eb.get("sold_domain", "ebay.de")).removeprefix("https://").removeprefix("www.").strip("/"),
     )
 
     searches = tuple(_parse_search(s, i) for i, s in enumerate(raw.get("searches") or []))

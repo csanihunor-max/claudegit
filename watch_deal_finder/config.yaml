@@ -1,0 +1,143 @@
+# Watch Deal Finder configuration. See README.md, "Editing config.yaml".
+# Secrets (Telegram token, eBay keys) go in .env, never here.
+
+# How often to check, in minutes (minimum 10). A little random extra is added each time.
+poll_interval_minutes: 15
+
+# Random pause between two requests to the same site, in seconds: [min, max].
+request_delay_seconds: [3, 8]
+
+# Used for the "~EUR" figures and margins. Update it now and then.
+eur_huf_rate: 395
+
+# Listings priced at or below this share of the reference resale price get a 🔥.
+hot_deal_ratio: 0.5
+
+# First run of a new search stores what's already listed without alerting.
+silent_first_pass: true
+
+# Keywords must appear in the title (the sites also match the ad text, which
+# brings in rocket stoves for "raketa").
+title_must_match: true
+
+# Titles containing any of these words (case/accent-insensitive, also inside
+# longer words: "gyerek" also blocks "gyerekóra") are ignored everywhere.
+blacklist:
+  - okosóra
+  - okos óra
+  - smartwatch
+  - smart watch
+  - replika
+  - replica
+  - másolat
+  - homage
+  - hommage
+  - gyerek
+  - gyermek
+  - casio
+  - fitness
+  - aktivitásmérő
+  - apple watch
+  - garmin
+  - amazfit
+  - xiaomi
+  - huawei
+  - galaxy watch
+  - óraszíj
+  - csak doboz
+
+sources:
+  jofogas:
+    enabled: true
+    notify: true
+    # Category URL slugs searched on www.jofogas.hu/magyarorszag/<slug>?q=...
+    #   "karorak-" = Férfi ruházat > Karórák (men's watches)
+    #   "karorak"  = Női ruházat > Karórák (women's watches)
+    #   ""         = all categories (more noise; vintage pieces sometimes sit in "Gyűjtemények")
+    # Each extra slug means one more request per keyword per pass.
+    categories: ["karorak-"]
+  ebay:
+    # Needs EBAY_CLIENT_ID / EBAY_CLIENT_SECRET in .env; silently off without them.
+    enabled: false
+    marketplace: EBAY_DE      # prices in EUR; EBAY_GB = GBP, EBAY_US = USD (only EUR/HUF are converted)
+    category_ids: "31387"     # Wristwatches
+    limit: 50
+    notify: false             # eBay is for price comparison; set true to get alerts too
+
+# Optional: only keep listings whose category path contains one of these
+# (case/accent-insensitive). Empty = no category filter.
+category_filter: []
+
+database: data/watchfinder.sqlite3
+log_file: logs/watchfinder.log
+
+# One entry per thing you're hunting. Each keyword is searched separately.
+#   max_price_huf:        no alert above this (listings are still stored and shown)
+#   reference_price_eur:  what you expect to resell it for; enables margin + 🔥
+# The reference prices below are placeholders: put in your own numbers.
+searches:
+  - name: Raketa
+    keywords: [raketa]
+    sources: [jofogas, ebay]
+    max_price_huf: 30000
+    reference_price_eur: 60
+
+  - name: Vostok
+    keywords: [vostok, komandirskie, amphibia]
+    sources: [jofogas, ebay]
+    max_price_huf: 35000
+    reference_price_eur: 70
+
+  - name: Poljot
+    keywords: [poljot, sturmanskie]
+    sources: [jofogas, ebay]
+    max_price_huf: 45000
+    reference_price_eur: 90
+
+  - name: Pobeda
+    keywords: [pobeda]
+    sources: [jofogas]
+    max_price_huf: 20000
+    reference_price_eur: 40
+
+  - name: Slava
+    keywords: [slava]
+    sources: [jofogas]
+    max_price_huf: 20000
+    reference_price_eur: 40
+
+  - name: Seiko
+    keywords: [seiko]
+    sources: [jofogas, ebay]
+    max_price_huf: 60000
+    reference_price_eur: 120
+
+  - name: Tissot
+    keywords: [tissot]
+    sources: [jofogas]
+    max_price_huf: 70000
+    reference_price_eur: 180
+
+  - name: Longines
+    keywords: [longines]
+    sources: [jofogas]
+    max_price_huf: 150000
+    reference_price_eur: 400
+
+  - name: Doxa
+    keywords: [doxa]
+    sources: [jofogas]
+    max_price_huf: 80000
+    reference_price_eur: 200
+
+  - name: Certina
+    keywords: [certina]
+    sources: [jofogas]
+    max_price_huf: 70000
+    reference_price_eur: 180
+
+  - name: Omega
+    keywords: [omega]
+    sources: [jofogas]
+    max_price_huf: 250000
+    reference_price_eur: 700

@@ -82,73 +82,72 @@ category_filter: []
 database: data/watchfinder.sqlite3
 log_file: logs/watchfinder.log
 
+# Resale references in EUR per MODEL, keyed by the model words shown on the
+# dashboard next to "eBay sold ↗" (brand + model name + reference numbers from
+# the title). Check the eBay sold link, then put what that model actually sells
+# for here. In cloud mode you can also set them on the dashboard ("set ref").
+# A listing without a model reference (and without a search reference) gets no
+# margin and no 🔥: a brand-wide number is meaningless for broad searches.
+model_references: {}
+#  raketa copernicus: 90
+#  seiko 5 6309: 80
+
 # One entry per thing you're hunting. Each keyword is searched separately.
 #   max_price_huf:        no alert above this (listings are still stored and shown)
-#   reference_price_eur:  what you expect to resell it for; enables margin + 🔥
-# The reference prices below are placeholders: put in your own numbers.
+#   reference_price_eur:  optional fallback resale price for EVERY listing the search
+#                         finds; only sensible for a narrow search (one model)
 searches:
   - name: Raketa
     keywords: [raketa]
     sources: [jofogas, ebay]
     max_price_huf: 30000
-    reference_price_eur: 60
 
   - name: Vostok
     keywords: [vostok, komandirskie, amphibia]
     sources: [jofogas, ebay]
     max_price_huf: 35000
-    reference_price_eur: 70
 
   - name: Poljot
     keywords: [poljot, sturmanskie]
     sources: [jofogas, ebay]
     max_price_huf: 45000
-    reference_price_eur: 90
 
   - name: Pobeda
     keywords: [pobeda]
     sources: [jofogas]
     max_price_huf: 20000
-    reference_price_eur: 40
 
   - name: Slava
     keywords: [slava]
     sources: [jofogas]
     max_price_huf: 20000
-    reference_price_eur: 40
 
   - name: Seiko
     keywords: [seiko]
     sources: [jofogas, ebay]
     max_price_huf: 60000
-    reference_price_eur: 120
 
   - name: Tissot
     keywords: [tissot]
     sources: [jofogas]
     max_price_huf: 70000
-    reference_price_eur: 180
 
   - name: Longines
     keywords: [longines]
     sources: [jofogas]
     max_price_huf: 150000
-    reference_price_eur: 400
 
   - name: Doxa
     keywords: [doxa]
     sources: [jofogas]
     max_price_huf: 80000
-    reference_price_eur: 200
 
   - name: Certina
     keywords: [certina]
     sources: [jofogas]
     max_price_huf: 70000
-    reference_price_eur: 180
 
   - name: Omega
     keywords: [omega]
     sources: [jofogas]
     max_price_huf: 250000
-    reference_price_eur: 700

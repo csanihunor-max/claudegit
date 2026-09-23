@@ -199,3 +199,14 @@ def test_writes_are_pinned_to_the_versions_read(tmp_path):
     writes = {(w["collection"], w["doc_id"]): w for b in report["batches"] for w in json.loads(Path(b).read_text())}
     assert writes[("shards", shard)]["if_version"] == 3 and writes[("shards", shard)]["op"] == "update"
     assert writes[("state", "seen")]["if_version"] == 5 and writes[("meta", "status")]["if_version"] == 5
+
+
+def test_model_references_are_read_from_the_dump(tmp_path):
+    from watchfinder.cloudsync import load_model_references
+
+    refs = tmp_path / "state" / "refs"
+    refs.mkdir(parents=True)
+    (refs / "raketa_copernicus.json").write_text(json.dumps({"model": "raketa copernicus", "eur": 95}))
+    (refs / "broken.json").write_text(json.dumps({"model": "", "eur": 10}))
+    (refs / "zero.json").write_text(json.dumps({"model": "seiko 5", "eur": 0}))
+    assert load_model_references(tmp_path / "state") == {"raketa copernicus": 95.0}

@@ -25,6 +25,9 @@ Artifact database layout:
                         kept apart so listing documents only change on real changes.
     meta/status         last run time and summary, plus the search settings the
                         dashboard needs for margins.
+    refs/<id>           {"model": "raketa copernicus", "eur": 90}: per-model resale
+                        references the owner sets on the dashboard after checking
+                        eBay sold prices. Read-only here (see `load_model_references`).
 """
 
 from __future__ import annotations
@@ -101,6 +104,16 @@ def load_versions(state_dir: Path) -> dict[str, int]:
         return {}
     raw = json.loads(path.read_text(encoding="utf-8"))
     return {str(k): int(v) for k, v in raw.items() if str(v).isdigit()}
+
+
+def load_model_references(state_dir: Path) -> dict[str, float]:
+    """Per-model references set on the dashboard (refs/<id> documents in the dump)."""
+    refs: dict[str, float] = {}
+    for doc in load_docs(state_dir / "refs").values():
+        model, eur = doc.get("model"), doc.get("eur")
+        if isinstance(model, str) and model.strip() and isinstance(eur, (int, float)) and eur > 0:
+            refs[model.strip()] = float(eur)
+    return refs
 
 
 def load_docs(directory: Path) -> dict[str, dict[str, Any]]:

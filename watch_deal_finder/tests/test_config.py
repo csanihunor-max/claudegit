@@ -49,3 +49,9 @@ def test_shipped_config_is_valid():
 
     cfg = load_config(Path(__file__).parent.parent / "config.yaml", env_file=None)
     assert len(cfg.searches) >= 5
+
+
+def test_model_references_validation():
+    assert parse_config({**MINIMAL, "model_references": {"Seiko 5 6309": "85"}}).model_references == {"seiko 5 6309": 85.0}
+    with pytest.raises(ConfigError):
+        parse_config({**MINIMAL, "model_references": {"seiko": "cheap"}})

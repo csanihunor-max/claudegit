@@ -101,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
 def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
     import json
 
-    from watchfinder.cloudsync import CollectingNotifier, export_state, import_state, load_versions
+    from dataclasses import replace
+
+    from watchfinder.cloudsync import (CollectingNotifier, export_state, import_state, load_model_references,
+                                       load_versions)
     from watchfinder.storage import utcnow
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,7 +114,9 @@ def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
     storage = Storage(work_db)
     try:
         imported = import_state(storage, state_dir)
-        log.info("restored %d listing(s) from %s", len(imported), state_dir)
+        refs = load_model_references(state_dir)
+        config = replace(config, model_references={**config.model_references, **refs})
+        log.info("restored %d listing(s) and %d model reference(s) from %s", len(imported), len(refs), state_dir)
         http = HttpClient(config.user_agent, config.request_delay_seconds)
         notifier = CollectingNotifier()
         run_at = utcnow()

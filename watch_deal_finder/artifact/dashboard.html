@@ -41,9 +41,18 @@
   .refline { font-size: 13px; color: var(--muted); min-height: 1.2em; }
   .refline a, .comps { color: var(--accent); text-underline-offset: 2px; }
   .comps { font: 12px var(--sans); white-space: nowrap; }
+  .c-margin { display: grid; gap: 2px; justify-items: start; }
+  .linkish { font: 12px var(--sans); background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer;
+             text-decoration: underline; text-underline-offset: 2px; }
+  .refform { display: grid; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .refform .line { display: flex; gap: 4px; align-items: center; }
+  .refform input { width: 76px; padding: 5px 6px; font: 13px var(--mono); }
+  .refform button { font: 500 12px var(--sans); padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+                    background: var(--surface); color: var(--ink); cursor: pointer; }
+  .refform button[type="submit"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .notice { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--muted); }
   .list { display: grid; gap: 8px; }
-  .row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 128px 130px auto; gap: 14px; align-items: center;
+  .row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 128px 176px auto; gap: 14px; align-items: center;
          background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
   .row.hot { border-color: color-mix(in srgb, var(--hot) 55%, var(--line)); }
   .row.dim { opacity: .62; }
@@ -67,6 +76,7 @@
   .actions button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .actions button:disabled { cursor: default; opacity: .6; }
   @media (max-width: 760px) {
+    .c-margin { justify-items: end; }
     .row { grid-template-columns: 80px minmax(0, 1fr); grid-template-areas: "thumb info" "price margin" "actions actions"; gap: 10px 12px; }
     .c-thumb { grid-area: thumb; } .c-info { grid-area: info; } .c-price { grid-area: price; }
     .c-margin { grid-area: margin; text-align: right; } .c-actions { grid-area: actions; }
@@ -106,7 +116,16 @@ const $ = (id) => document.getElementById(id);
 const SOURCE_LABELS = { jofogas: "Jófogás", ebay: "eBay" };
 const huf = (n) => n == null ? "–" : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " Ft";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { active: [], gone: [], meta: null, db: null, loaded: false, readOnly: false, busy: new Set() };
+const state = { active: [], gone: [], meta: null, db: null, loaded: false, readOnly: false, busy: new Set(),
+                refs: {},          // model words -> {eur, id}: resale references set from eBay sold prices
+                modelPrices: {},   // model words -> Jófogás asking prices of active listings
+                editing: null,     // {id, key} of the row whose reference editor is open
+                draft: "" };
+const median = (xs) => {
+  const s = [...xs].sort((a, b) => a - b), m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const refDocId = (key) => key.replace(/[^A-Za-z0-9_\-.~:@+]/g, "_").slice(0, 200);
 
 function ago(iso) {
   if (!iso) return "";
@@ -120,15 +139,19 @@ const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", m
 function decorate(doc, selectedSearch) {
   const meta = state.meta || {};
   const rate = meta.eur_huf_rate || 395, ratio = meta.hot_deal_ratio || 0.5;
-  const refs = (meta.searches || [])
+  const searchRefs = (meta.searches || [])
     .filter((s) => (doc.searches || []).includes(s.name) && s.reference_price_eur && (!selectedSearch || s.name === selectedSearch))
     .map((s) => s.reference_price_eur);
-  const ref = refs.length ? Math.max(...refs) : null;
+  const key = doc.comps_query || "";
+  const modelRef = key && state.refs[key] ? state.refs[key].eur : null;
+  const ref = modelRef != null ? modelRef : searchRefs.length ? Math.max(...searchRefs) : null;
+  const refFrom = modelRef != null ? "model" : ref != null ? "search" : null;
+  const peers = (key && state.modelPrices[key]) || [];
   const eur = doc.price_huf == null ? null : doc.price_huf / rate;
   const margin = ref != null && eur != null ? ref - eur : null;
   const points = [];
   for (const h of doc.history || []) if (!points.length || points[points.length - 1] !== h.huf) points.push(h.huf);
-  return { ...doc, ref, eur, margin, marginPct: margin == null ? null : Math.round(100 * margin / ref),
+  return { ...doc, key, ref, refFrom, peers, eur, margin, marginPct: margin == null ? null : Math.round(100 * margin / ref),
            hot: ref != null && doc.price_huf != null && doc.price_huf <= ref * rate * ratio, points };
 }
 
@@ -166,6 +189,24 @@ function visible() {
   return items;
 }
 
+function refEditor(it) {
+  if (!it.key || state.readOnly) return "";
+  const own = state.refs[it.key];
+  const open = state.editing && state.editing.id === it._id;
+  if (!open) {
+    return `<button type="button" class="linkish" data-setref="${esc(it.key)}">${own ? "edit ref" : "set ref"}</button>`;
+  }
+  const count = state.active.filter((d) => d.comps_query === it.key).length;
+  return `<form class="refform" data-model="${esc(it.key)}">
+    <span>Resale ref for “${esc(it.key)}” (${count} listing${count === 1 ? "" : "s"})</span>
+    <span class="line"><input id="ref-input" inputmode="decimal" autocomplete="off" value="${esc(state.draft)}"
+      aria-label="Resale reference in euros"> €
+      <button type="submit">Save</button>
+      ${own ? `<button type="button" data-clearref>Clear</button>` : ""}
+      <button type="button" data-cancelref aria-label="Cancel">✕</button></span>
+  </form>`;
+}
+
 function rowHtml(it) {
   const price = it.currency === "HUF" ? huf(it.price_huf) : it.price == null ? "–" : `${Number(it.price).toFixed(2)} ${esc(it.currency)}`;
   const priceSub = it.currency === "HUF" ? (it.eur == null ? "" : `~${Math.round(it.eur)} €`) : huf(it.price_huf);
@@ -173,9 +214,12 @@ function rowHtml(it) {
   const comps = it.comps_query
     ? `<div><a class="comps" href="${esc(soldUrl(it.comps_query))}" target="_blank" rel="noopener"
          title="eBay sold items: ${esc(it.comps_query)}">eBay sold ↗</a></div>` : "";
-  const margin = it.margin == null ? `<span class="sub">no reference</span>${comps}`
+  const peers = it.peers.length >= 3
+    ? `<div class="sub" title="Median asking price of ${it.peers.length} active Jófogás ads with the same model words">Jófogás median ${huf(median(it.peers))} (${it.peers.length})</div>` : "";
+  const margin = (it.margin == null ? `<span class="sub">no reference</span>`
     : `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
-       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ref ${it.ref} €</div>${comps}`;
+       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ref ${it.ref} €${it.refFrom === "search" ? " (search)" : ""}</div>`)
+    + comps + peers + refEditor(it);
   const pct = Math.round(100 * ((state.meta && state.meta.hot_deal_ratio) || 0.5));
   const chips = (it.hot ? `<span class="chip hot">🔥 ≤ ${pct}% of ref</span>` : "")
     + (it.status === "gone" ? `<span class="chip gone">gone ${esc(ago(it.gone_at))}</span>` : "")
@@ -204,6 +248,10 @@ function rowHtml(it) {
 }
 
 function render() {
+  state.modelPrices = {};
+  for (const d of state.active) {
+    if (d.source === "jofogas" && d.comps_query && d.price_huf) (state.modelPrices[d.comps_query] ||= []).push(d.price_huf);
+  }
   const items = visible();
   if (!state.db || !state.loaded) return;
   if (!state.active.length && !state.gone.length) {
@@ -215,6 +263,8 @@ function render() {
   }
   renderStatus(items.length);
   renderRefline();
+  const input = $("ref-input");
+  if (input && document.activeElement !== input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
 
 function renderStatus(shown) {
@@ -236,10 +286,6 @@ function renderRefline() {
   if (info.reference_price_eur) parts.push(esc(`resale reference ${info.reference_price_eur} €`));
   const kw = (info.keywords && info.keywords[0]) || name;
   parts.push(`<a href="${esc(soldUrl(kw))}" target="_blank" rel="noopener">check eBay sold prices ↗</a>`);
-  const median = (xs) => {
-    const s = [...xs].sort((a, b) => a - b), m = Math.floor(s.length / 2);
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  };
   // Ads that disappeared in the last 30 days: sold or withdrawn, at their last asking price.
   const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
   const gone = state.gone.filter((d) => d.source === "jofogas" && (d.searches || []).includes(name)
@@ -260,6 +306,21 @@ function fillSearchOptions() {
 }
 
 $("list").addEventListener("click", async (ev) => {
+  const setBtn = ev.target.closest("button[data-setref]");
+  if (setBtn) {
+    const key = setBtn.dataset.setref;
+    state.editing = { id: setBtn.closest(".row").dataset.id, key };
+    state.draft = state.refs[key] ? String(state.refs[key].eur) : "";
+    render();
+    return;
+  }
+  if (ev.target.closest("button[data-cancelref]")) { state.editing = null; render(); return; }
+  if (ev.target.closest("button[data-clearref]")) {
+    const key = state.editing && state.editing.key;
+    state.editing = null;
+    if (key && state.refs[key]) await saveRef(key, null);
+    return;
+  }
   const btn = ev.target.closest("button[data-status]");
   if (!btn || !state.db || state.readOnly) return;
   const row = btn.closest(".row"), id = row.dataset.id;
@@ -275,6 +336,29 @@ $("list").addEventListener("click", async (ev) => {
     state.busy.delete(id); render();
   }
 });
+
+$("list").addEventListener("input", (ev) => { if (ev.target.id === "ref-input") state.draft = ev.target.value; });
+$("list").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const form = ev.target.closest(".refform");
+  if (!form) return;
+  const eur = parseFloat(String(state.draft).replace(/\s/g, "").replace(",", "."));
+  if (!(eur > 0)) { $("ref-input").setCustomValidity("Enter a price in euros, e.g. 85"); $("ref-input").reportValidity(); return; }
+  state.editing = null;
+  await saveRef(form.dataset.model, Math.round(eur * 100) / 100);
+});
+
+async function saveRef(key, eur) {
+  try {
+    const ref = state.db.doc("refs/" + refDocId(key));
+    if (eur == null) await ref.delete();
+    else await ref.set({ model: key, eur, set_at: new Date().toISOString() });
+  } catch (e) {
+    if (e && e.code === "invalid_argument") state.readOnly = true;
+    $("status").textContent = "Couldn't save the reference. Try again in a moment.";
+  }
+  render();
+}
 
 ["f-search", "f-source", "f-sort", "f-view"].forEach((id) => $(id).addEventListener("change", () => { savePrefs(); render(); }));
 $("f-max").addEventListener("input", () => { savePrefs(); render(); });
@@ -310,6 +394,16 @@ const wantedSearch = loadPrefs();
     state.meta = snap.exists ? snap.data() : null;
     fillSearchOptions();
     if (wantedSearch && !$("f-search").value) $("f-search").value = wantedSearch;
+    render();
+  }, onErr);
+  // Per-model resale references, set above from eBay sold prices; the hourly run uses them too.
+  db.collection("refs").limit(1000).onSnapshot((snap) => {
+    const refs = {};
+    for (const d of snap.docs) {
+      const r = d.data() || {};
+      if (r.model && r.eur > 0) refs[r.model] = { eur: r.eur, id: d.id };
+    }
+    state.refs = refs;
     render();
   }, onErr);
   // Listings live in 16 shard documents: {items: {id: listing}}.

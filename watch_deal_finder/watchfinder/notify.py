@@ -124,10 +124,18 @@ def build_notifier(config: AppConfig) -> Notifier:
 # -- deciding and formatting ---------------------------------------------
 
 
-def is_hot(price_huf: int | None, search: SearchConfig, config: AppConfig) -> bool:
-    if price_huf is None or not search.reference_price_eur:
+def reference_price(search: SearchConfig, config: AppConfig, model_key: str | None = None) -> float | None:
+    """The model's own reference (set from sold items) if there is one, else the search's."""
+    if model_key and model_key in config.model_references:
+        return config.model_references[model_key]
+    return search.reference_price_eur
+
+
+def is_hot(price_huf: int | None, search: SearchConfig, config: AppConfig, model_key: str | None = None) -> bool:
+    ref = reference_price(search, config, model_key)
+    if price_huf is None or not ref:
         return False
-    return price_huf <= search.reference_price_eur * config.eur_huf_rate * config.hot_deal_ratio
+    return price_huf <= ref * config.eur_huf_rate * config.hot_deal_ratio
 
 
 def should_alert(event: Event, search: SearchConfig, config: AppConfig, storage: Storage) -> bool:
@@ -145,7 +153,9 @@ def should_alert(event: Event, search: SearchConfig, config: AppConfig, storage:
 def format_alert(event: Event, search: SearchConfig, config: AppConfig) -> Alert:
     listing = event.listing
     rate = config.eur_huf_rate
-    hot = is_hot(event.price_huf, search, config)
+    model_key = comps_query(listing.title, search.keywords)
+    ref = reference_price(search, config, model_key)
+    hot = is_hot(event.price_huf, search, config, model_key)
 
     head = "📉 Price drop" if event.kind is EventKind.PRICE_DROP else "🆕 New"
     if hot:
@@ -165,16 +175,15 @@ def format_alert(event: Event, search: SearchConfig, config: AppConfig) -> Alert
         pct = round(100 * (event.old_price_huf - event.price_huf) / event.old_price_huf)
         lines.append(f"↘️ was {format_huf(event.old_price_huf)} (−{pct}%)")
 
-    if search.reference_price_eur and event.price_huf is not None:
-        ref = search.reference_price_eur
+    if ref and event.price_huf is not None:
         margin = ref - event.price_huf / rate
         pct = round(100 * abs(margin) / ref)
         sign = "+" if margin >= 0 else "−"
-        lines.append(f"📈 resale ref {format_eur(ref)} → est. margin {sign}{format_eur(abs(margin))} ({sign}{pct}%)")
+        which = f"'{model_key}'" if model_key in config.model_references else search.name
+        lines.append(f"📈 ref {format_eur(ref)} ({which}) → est. margin {sign}{format_eur(abs(margin))} ({sign}{pct}%)")
 
     where = " · ".join(p for p in (listing.location, SOURCE_LABELS.get(listing.source, listing.source)) if p)
     lines.append(f"📍 {where}")
-    comps = ebay_sold_url(comps_query(listing.title, search.keywords), config.ebay.sold_domain,
-                          config.ebay.category_ids)
+    comps = ebay_sold_url(model_key, config.ebay.sold_domain, config.ebay.category_ids)
     return Alert(title=title, body="\n".join(lines), url=listing.url, image_url=listing.thumbnail_url, hot=hot,
                  comps_url=comps)

@@ -139,12 +139,16 @@ def _int_arg(name: str) -> int | None:
 
 def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | None) -> dict[str, Any]:
     rate = config.eur_huf_rate
-    refs = [s.reference_price_eur for s in config.searches
-            if s.name in row["searches"] and s.reference_price_eur
-            and (selected_search is None or s.name == selected_search)]
-    reference = max(refs) if refs else None
     keywords = [k for s in config.searches if s.name in row["searches"] for k in s.keywords]
-    comps_url = ebay_sold_url(comps_query(row["title"], keywords), config.ebay.sold_domain, config.ebay.category_ids)
+    model_key = comps_query(row["title"], keywords)
+    comps_url = ebay_sold_url(model_key, config.ebay.sold_domain, config.ebay.category_ids)
+    if model_key in config.model_references:
+        reference, reference_from = config.model_references[model_key], model_key
+    else:
+        refs = [s.reference_price_eur for s in config.searches
+                if s.name in row["searches"] and s.reference_price_eur
+                and (selected_search is None or s.name == selected_search)]
+        reference, reference_from = (max(refs) if refs else None), "search"
     price_huf = row["price_huf"]
     price_eur = price_huf / rate if price_huf is not None else None
     margin = reference - price_eur if reference is not None and price_eur is not None else None
@@ -172,4 +176,6 @@ def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | Non
         "searches": row["searches"],
         "price_history": row["price_history"],
         "comps_url": comps_url,
+        "model_key": model_key,
+        "reference_from": reference_from if reference is not None else None,
     }

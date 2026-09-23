@@ -104,8 +104,13 @@ searches:
   title.
 - **max_price_huf**: listings above it are still stored and visible in the
   dashboard (and alert later if the price drops under it), but don't alert.
-- **reference_price_eur**: the numbers in the shipped config are placeholders.
-  Put in what you actually sell for. To check one, use the **eBay sold ↗**
+- **model_references** (recommended) and **reference_price_eur**: a resale
+  reference is set per *model*, keyed by the model words shown next to each
+  listing's **eBay sold ↗** link (`raketa copernicus: 90`). A search-wide
+  `reference_price_eur` applies one number to everything a search finds, which
+  is only sensible for a one-model search, so none are set by default. With no
+  reference, a listing gets no margin and no 🔥. In cloud mode, set references
+  on the dashboard ("set ref"); the hourly run picks them up. To check one, use the **eBay sold ↗**
   links: every listing, alert and search links to eBay's sold-items search
   for that model (brand + model words + reference numbers from the title,
   e.g. "raketa copernicus", "seiko 5 7009 3040"), on `sources.ebay.sold_domain`

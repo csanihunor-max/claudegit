@@ -77,6 +77,9 @@ class AppConfig:
     jofogas: JofogasConfig = field(default_factory=JofogasConfig)
     ebay: EbayConfig = field(default_factory=EbayConfig)
     secrets: Secrets = field(default_factory=Secrets)
+    # Resale reference in EUR per model, keyed by the model words the "eBay sold" links
+    # use (e.g. "raketa copernicus"). Beats a search's reference_price_eur.
+    model_references: dict[str, float] = field(default_factory=dict)
 
     def search(self, name: str) -> SearchConfig | None:
         return next((s for s in self.searches if s.name == name), None)
@@ -157,6 +160,7 @@ def parse_config(raw: dict[str, Any], base_dir: Path = Path("."), environ: Any =
         log_file=_resolve(base_dir, raw.get("log_file", "logs/watchfinder.log")),
         jofogas=jofogas,
         ebay=ebay,
+        model_references=parse_model_references(raw.get("model_references")),
         secrets=Secrets(
             ntfy_topic=(environ.get("NTFY_TOPIC") or "").strip().strip("/") or None,
             ntfy_server=environ.get("NTFY_SERVER") or "https://ntfy.sh",
@@ -165,6 +169,26 @@ def parse_config(raw: dict[str, Any], base_dir: Path = Path("."), environ: Any =
             ebay_client_secret=environ.get("EBAY_CLIENT_SECRET") or None,
         ),
     )
+
+
+def parse_model_references(raw: Any) -> dict[str, float]:
+    from .filters import normalize
+
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError("model_references must be a mapping of model words to a EUR price")
+    refs = {}
+    for model, eur in raw.items():
+        if eur is None:
+            continue
+        try:
+            value = float(eur)
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"model_references[{model!r}] must be a number (EUR)") from exc
+        if value > 0:
+            refs[normalize(str(model))] = value
+    return refs
 
 
 def _parse_search(raw: Any, index: int) -> SearchConfig:

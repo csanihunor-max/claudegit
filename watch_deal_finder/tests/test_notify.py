@@ -17,7 +17,7 @@ def test_new_listing_alert(config, raketa):
     assert alert.body.splitlines() == [
         "Raketa 2609 <HA>",                                  # plain text: no escaping needed
         "💰 20 000 Ft (~50 €)",                              # rate 400 in tests
-        "📈 resale ref 60 € → est. margin +10 € (+17%)",
+        "📈 ref 60 € (Raketa) → est. margin +10 € (+17%)",
         "📍 Budapest · Jófogás",
     ]
     assert alert.url == URL and alert.image_url.endswith("x.jpg") and alert.hot is False
@@ -132,3 +132,23 @@ def test_alert_links_to_ebay_sold_items_for_the_model(config, raketa):
     NtfyNotifier("t", session=session, sleep=lambda s: None, min_interval=0).send(alert)
     labels = [a["label"] for a in session.calls[0][1]["actions"]]
     assert labels == ["Open listing", "eBay sold"]
+
+
+def test_model_reference_beats_the_search_reference(raketa):
+    from tests.conftest import make_config
+
+    config = make_config(model_references={"Rakéta Copernicus": 100})   # normalized: "raketa copernicus"
+    assert config.model_references == {"raketa copernicus": 100.0}
+    copernicus = listing(price=18000, title="Raketa Kopernikusz szép állapot")
+    alert = format_alert(Event(EventKind.NEW, "Raketa", copernicus, 18000), raketa, config)
+    # 100 EUR * 400 = 40 000 Ft reference; 18 000 Ft is <= 50% of it -> hot
+    assert alert.hot and "📈 ref 100 € ('raketa copernicus') → est. margin +55 € (+55%)" in alert.body
+    # another Raketa model still uses the search's 60 EUR
+    other = format_alert(Event(EventKind.NEW, "Raketa", listing(18000, "Raketa 2609"), 18000), raketa, config)
+    assert "📈 ref 60 € (Raketa)" in other.body and not other.hot
+
+
+def test_no_reference_means_no_margin_and_no_fire(config):
+    seiko = config.search("Seiko")   # no reference_price_eur in the test config
+    alert = format_alert(Event(EventKind.NEW, "Seiko", listing(1000, "Seiko 5"), 1000), seiko, config)
+    assert "📈" not in alert.body and not alert.hot

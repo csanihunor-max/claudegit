@@ -325,6 +325,55 @@ def test_dashboard_links_to_ram_finder(tmp_path):
     assert 'href="/ram' in body
 
 
+def test_dashboard_links_to_gpu_finder(tmp_path):
+    client = _make_client(tmp_path, [])
+    body = client.get("/").get_data(as_text=True)
+    assert 'href="/gpu' in body
+
+
+def test_gpu_finder_matches_only_graphics_card_category_and_chip(tmp_path):
+    client = _ram_client(
+        tmp_path,
+        [
+            (_ram_listing("1", "GIGABYTE RTX 3070 Ti 8GB GDDR6X GAMING OC videokártya", 130_000), "Graphics Cards"),
+            (_ram_listing("2", "SAPPHIRE Radeon RX570 4GB NITRO+ videokártya", 25_000), "Graphics Cards"),
+            # a laptop whose embedded GPU happens to match the same chip --
+            # must not appear, it's scraped from a different category.
+            (_ram_listing("3", "ACER PREDATOR HELIOS 300 i7 RTX 3070 8GB laptop", 400_000), "Laptops"),
+        ],
+    )
+    response = client.get("/gpu?chip=3070")
+    body = response.get_data(as_text=True)
+    assert "GIGABYTE" in body
+    assert "RX570" not in body
+    assert "PREDATOR" not in body
+
+
+def test_gpu_finder_sorts_by_price_ascending(tmp_path):
+    client = _ram_client(
+        tmp_path,
+        [
+            (_ram_listing("expensive", "ASUS RTX 3070 Ti 8GB videokártya", 140_000), "Graphics Cards"),
+            (_ram_listing("cheap", "GIGABYTE RTX 3070 8GB videokártya", 100_000), "Graphics Cards"),
+        ],
+    )
+    body = client.get("/gpu").get_data(as_text=True)
+    assert body.index("GIGABYTE") < body.index("ASUS")
+
+
+def test_gpu_finder_filters_by_min_vram(tmp_path):
+    client = _ram_client(
+        tmp_path,
+        [
+            (_ram_listing("1", "BIOSTAR GeForce GT 1030 4GB videokártya", 15_000), "Graphics Cards"),
+            (_ram_listing("2", "SAPPHIRE RX 7900 XTX Nitro+ 24GB videokártya", 500_000), "Graphics Cards"),
+        ],
+    )
+    body = client.get("/gpu?min_vram_gb=16").get_data(as_text=True)
+    assert "SAPPHIRE" in body
+    assert "BIOSTAR" not in body
+
+
 def test_refresh_failure_is_caught_and_shown(tmp_path, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("network exploded")

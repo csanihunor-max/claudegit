@@ -26,6 +26,7 @@ from .notify.console import ConsoleNotifier
 from .notify.telegram import TelegramNotifier
 from .pipeline import run_once
 from .scraper.client import HardveraproClient
+from .scraper.gpu_specs import parse_gpu_spec
 from .scraper.ram_specs import parse_ram_spec
 from .storage import db
 
@@ -64,6 +65,7 @@ _TEMPLATE = """
     <h1>Best Hardverapro deals right now</h1>
     <div style="display:flex; gap:0.5rem;">
       <a class="refresh" href="{{ url_for('ram_finder') }}">DDR4 32GB 3200MHz+ RAM</a>
+      <a class="refresh" href="{{ url_for('gpu_finder') }}">Graphics cards</a>
       <form method="post" action="{{ url_for('refresh') }}">
         <button class="refresh" type="submit">↻ Refresh now</button>
       </form>
@@ -215,6 +217,86 @@ _RAM_TEMPLATE = """
   </table>
   {% else %}
   <p class="empty">No current RAM listings match these specs.</p>
+  {% endif %}
+</body>
+</html>
+"""
+
+_GPU_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPU finder — Hardverapro deals</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 1rem;
+           background: #111; color: #eee; }
+    h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.75rem; }
+    .meta { color: #888; font-size: 0.8rem; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid #333; }
+    th { color: #999; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; }
+    a { color: #6cf; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .price { white-space: nowrap; }
+    .empty { color: #888; padding: 2rem 0; text-align: center; }
+    .toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .toolbar label { color: #999; font-size: 0.8rem; }
+    .toolbar input { background: #1a1a1a; color: #eee; border: 1px solid #456;
+                      border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.85rem; width: 8rem; }
+    button.apply { background: #234; color: #eee; border: 1px solid #456; border-radius: 6px;
+                      padding: 0.4rem 0.9rem; font-size: 0.85rem; cursor: pointer; }
+    button.apply:hover { background: #345; }
+  </style>
+</head>
+<body>
+  <p><a href="{{ url_for('dashboard') }}">&larr; Back to deals</a></p>
+  <h1>GPU finder</h1>
+  <p class="meta">
+    Every currently-listed graphics card on hardverapro.hu, cheapest first -- not a
+    "deal" against market history like the main dashboard, just a live filtered search.
+    Parsed from each title's stated chip/VRAM (see scraper/gpu_specs.py) -- a listing
+    worded unusually enough not to state both clearly won't appear here. Filter by
+    chip with a substring like "3070" (matches both RTX 3070 and 3070 Ti) or "rtx3070ti"
+    for an exact model.
+  </p>
+  <form method="get" class="toolbar">
+    <label>Chip contains
+      <input type="text" name="chip" value="{{ chip_filter or "" }}" placeholder="e.g. 3070, rx6600">
+    </label>
+    <label>Min VRAM (GB)
+      <input type="number" name="min_vram_gb" value="{{ min_vram_gb }}" min="0">
+    </label>
+    <button class="apply" type="submit">Search</button>
+  </form>
+  {% if results %}
+  <table>
+    <thead>
+      <tr>
+        <th>Price</th>
+        <th>Item</th>
+        <th>Chip</th>
+        <th>VRAM</th>
+        <th>Location</th>
+        <th>Distance</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr>
+        <td class="price">{{ "{:,.0f}".format(r.price) }} {{ r.currency }}</td>
+        <td><a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.title }}</a></td>
+        <td>{{ r.spec.chip }}</td>
+        <td>{{ r.spec.vram_gb }} GB</td>
+        <td>{{ r.location or "" }}</td>
+        <td class="price">{% if r.distance_km is not none %}{{ "%.0f"|format(r.distance_km) }} km{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No current graphics card listings match this filter.</p>
   {% endif %}
 </body>
 </html>
@@ -437,6 +519,55 @@ def create_app(config: Config) -> Flask:
             memory_type=memory_type,
             min_capacity_gb=min_capacity_gb,
             min_freq_mhz=min_freq_mhz,
+        )
+
+    @app.get("/gpu")
+    def gpu_finder():
+        chip_filter = (request.args.get("chip") or "").strip().lower()
+        try:
+            min_vram_gb = int(request.args.get("min_vram_gb", 0))
+        except ValueError:
+            min_vram_gb = 0
+
+        conn = _get_conn()
+        try:
+            rows = db.get_current_listings(
+                conn,
+                config.reference_window_days,
+                max_listing_age_seconds=config.poll_interval_seconds * 2,
+                source_label="Graphics Cards",
+            )
+        finally:
+            conn.close()
+
+        results = []
+        for row in rows:
+            spec = parse_gpu_spec(row["title"])
+            if spec is None:
+                continue
+            if chip_filter and chip_filter not in spec.chip:
+                continue
+            if spec.vram_gb < min_vram_gb:
+                continue
+            geo = describe_location(row["location"])
+            results.append(
+                {
+                    "title": row["title"],
+                    "url": row["url"],
+                    "price": row["price"],
+                    "currency": row["currency"],
+                    "location": row["location"],
+                    "distance_km": geo["distance_km"] if geo else None,
+                    "spec": spec,
+                }
+            )
+        results.sort(key=lambda r: r["price"])
+
+        return render_template_string(
+            _GPU_TEMPLATE,
+            results=results,
+            chip_filter=request.args.get("chip") or "",
+            min_vram_gb=min_vram_gb,
         )
 
     @app.get("/healthz")

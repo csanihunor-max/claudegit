@@ -11,6 +11,7 @@ from typing import Callable, Mapping
 from .config import AppConfig
 from .filters import filter_listings
 from .models import Event
+from .market import GroupStats, stats_from_storage
 from .notify import Notifier, format_alert, should_alert
 from .sources.base import Source, SourceError
 from .storage import Storage, utcnow
@@ -44,10 +45,14 @@ class Runner:
         self.notifier = notifier
         self._now = now
         self._unsent: list[Event] = []  # alerts whose send failed; retried next pass
+        self.market: dict[str, GroupStats] = {}
 
     def run_once(self) -> PassSummary:
         summary = PassSummary()
         pass_started = self._now()
+        # Market references from what was known before this pass, so a new listing is
+        # never compared with itself.
+        self.market = stats_from_storage(self.storage, self.config)
         outcomes: dict[tuple[str, str], bool] = {}
 
         for search in self.config.searches:
@@ -91,7 +96,7 @@ class Runner:
             search = self.config.search(event.search_name)
             if search is None or not should_alert(event, search, self.config, self.storage):
                 continue
-            if self.notifier.send(format_alert(event, search, self.config)):
+            if self.notifier.send(format_alert(event, search, self.config, self.market)):
                 self.storage.record_alert(
                     event.listing.source, event.listing.listing_id, event.price_huf, event.kind.value, self._now()
                 )

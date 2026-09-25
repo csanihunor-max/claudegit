@@ -17,7 +17,7 @@ def test_new_listing_alert(config, raketa):
     assert alert.body.splitlines() == [
         "Raketa 2609 <HA>",                                  # plain text: no escaping needed
         "💰 20 000 Ft (~50 €)",                              # rate 400 in tests
-        "📈 ref 60 € (Raketa) → est. margin +10 € (+17%)",
+        "📈 Raketa search ref: 60 € → est. margin +10 € (+17%)",
         "📍 Budapest · Jófogás",
     ]
     assert alert.url == URL and alert.image_url.endswith("x.jpg") and alert.hot is False
@@ -38,10 +38,15 @@ def test_negative_margin(config, raketa):
     assert "est. margin −5 € (−8%)" in alert.body
 
 
-def test_is_hot_threshold(config, raketa):
-    assert is_hot(12000, raketa, config)
-    assert not is_hot(12001, raketa, config)
-    assert not is_hot(1000, config.search("Seiko"), config)   # no reference price -> never hot
+def test_is_hot_threshold():
+    from watchfinder.market import Reference
+
+    ref = Reference(60, "search")                 # 60 EUR * 400 = 24 000 Ft, 50% = 12 000 Ft
+    assert is_hot(12000, ref, 400, 0.5)
+    assert not is_hot(12001, ref, 400, 0.5)
+    assert not is_hot(1000, None, 400, 0.5)       # no reference -> never hot
+    assert not is_hot(500, ref, 400, 0.5)         # placeholder prices under 1 000 Ft never count
+    assert not is_hot(5000, ref, 400, 0.5, "Raketa alkatrésznek")   # parts never count
 
 
 def test_should_alert_rules(storage, config, raketa):
@@ -142,13 +147,34 @@ def test_model_reference_beats_the_search_reference(raketa):
     copernicus = listing(price=18000, title="Raketa Kopernikusz szép állapot")
     alert = format_alert(Event(EventKind.NEW, "Raketa", copernicus, 18000), raketa, config)
     # 100 EUR * 400 = 40 000 Ft reference; 18 000 Ft is <= 50% of it -> hot
-    assert alert.hot and "📈 ref 100 € ('raketa copernicus') → est. margin +55 € (+55%)" in alert.body
+    assert alert.hot and "📈 your ref for 'raketa copernicus': 100 € → est. margin +55 € (+55%)" in alert.body
     # another Raketa model still uses the search's 60 EUR
     other = format_alert(Event(EventKind.NEW, "Raketa", listing(18000, "Raketa 2609"), 18000), raketa, config)
-    assert "📈 ref 60 € (Raketa)" in other.body and not other.hot
+    assert "📈 Raketa search ref: 60 €" in other.body and not other.hot
 
 
 def test_no_reference_means_no_margin_and_no_fire(config):
     seiko = config.search("Seiko")   # no reference_price_eur in the test config
     alert = format_alert(Event(EventKind.NEW, "Seiko", listing(1000, "Seiko 5"), 1000), seiko, config)
     assert "📈" not in alert.body and not alert.hot
+
+
+def test_market_reference_in_alert(config):
+    from watchfinder.market import GroupStats
+
+    seiko = config.search("Seiko")   # no search reference
+    stats = {"seiko 5 automatic": GroupStats(median=70000, p25=55000, p75=85000, n=12)}
+    alert = format_alert(Event(EventKind.NEW, "Seiko", listing(30000, "Seiko 5 automata"), 30000), seiko, config,
+                         stats)
+    assert alert.hot   # 30 000 <= 50% of 70 000, spread 0.43
+    assert ("📊 typical Jófogás price for 'seiko 5 automatic': 70 000 Ft (12 ads, middle half 55 000 Ft–85 000 Ft)"
+            " → 57% below") in alert.body
+
+
+def test_parts_are_flagged_and_never_hot(config):
+    from watchfinder.market import GroupStats
+
+    stats = {"seiko 5 automatic": GroupStats(70000, 55000, 85000, 12)}
+    alert = format_alert(Event(EventKind.NEW, "Seiko", listing(9000, "Seiko 5 automata hibás, alkatrésznek"), 9000),
+                         config.search("Seiko"), config, stats)
+    assert not alert.hot and "🔧 looks like parts" in alert.body

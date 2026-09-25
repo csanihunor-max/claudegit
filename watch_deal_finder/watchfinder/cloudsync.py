@@ -38,8 +38,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .comps import comps_query
 from .config import AppConfig
+from .filters import blacklisted
+from .market import MAX_SPREAD, MIN_SAMPLES, MIN_SAMPLES_HOT, WINDOW_DAYS, is_parts, listing_records, market_stats
 from .notify import Alert
 from .storage import USER_STATUSES, Storage
 
@@ -56,7 +57,7 @@ PRUNE_GONE_AFTER_DAYS = 30
 ENGINE_FIELDS = (
     "source", "listing_id", "title", "price", "currency", "price_huf", "url", "location",
     "thumbnail_url", "category", "first_seen", "status", "gone_at", "searches", "history", "alerted",
-    "comps_query",
+    "comps_query", "group_keys", "market_ok", "parts",
 )
 
 _BAD_ID_CHARS = re.compile(r"[^A-Za-z0-9_\-.~:@+]")
@@ -175,7 +176,7 @@ def import_state(storage: Storage, state_dir: Path) -> dict[str, dict[str, Any]]
 
 def listing_docs(storage: Storage, config: AppConfig) -> dict[str, dict[str, Any]]:
     conn = storage.conn
-    keywords = {s.name: s.keywords for s in config.searches}
+    signatures = {(r["source"], r["listing_id"]): r["signature"] for r in listing_records(storage, config)}
     searches: dict[tuple[str, str], list[str]] = {}
     for r in conn.execute("SELECT source, listing_id, search_name FROM listing_searches ORDER BY search_name"):
         searches.setdefault((r[0], r[1]), []).append(r[2])
@@ -195,8 +196,11 @@ def listing_docs(storage: Storage, config: AppConfig) -> dict[str, dict[str, Any
             "thumbnail_url": r["thumbnail_url"], "category": r["category"], "first_seen": r["first_seen"],
             "status": r["status"], "gone_at": r["gone_at"], "searches": searches.get(key, []),
             "history": history.get(key, []), "alerted": alerted.get(key, []),
-            # model words for the dashboard's "eBay sold" link
-            "comps_query": comps_query(r["title"], [k for n in searches.get(key, []) for k in keywords.get(n, ())]),
+            # model words for the "eBay sold" link, and the groups used for market references
+            "comps_query": signatures[key].query,
+            "group_keys": signatures[key].group_keys,
+            "market_ok": signatures[key].market_ok,
+            "parts": is_parts(r["title"]),
         }
     return docs
 
@@ -238,9 +242,14 @@ def export_state(
     cutoff = (datetime.fromisoformat(run_at) - timedelta(days=PRUNE_GONE_AFTER_DAYS)).isoformat()
     keep_statuses = {"interested", "bought"}
     pruned: list[str] = []
-    for r in storage.conn.execute(
-        "SELECT source, listing_id, user_status FROM listings WHERE status = 'gone' AND gone_at < ?", (cutoff,)
-    ).fetchall():
+    # Gone for a month, or matching a blacklist word added since the listing was stored.
+    candidates = storage.conn.execute(
+        "SELECT source, listing_id, user_status, title, status, gone_at FROM listings"
+    ).fetchall()
+    for r in candidates:
+        old_gone = r[4] == "gone" and (r[5] or "") < cutoff
+        if not old_gone and not blacklisted(r[3], config.blacklist):
+            continue
         did = doc_id(r[0], r[1])
         # user_status lives in the artifact (the page writes it); trust the dump over SQLite.
         if (imported.get(did) or {}).get("user_status", r[2]) in keep_statuses:
@@ -290,6 +299,11 @@ def export_state(
         "eur_huf_rate": config.eur_huf_rate,
         "hot_deal_ratio": config.hot_deal_ratio,
         "ebay_sold_domain": config.ebay.sold_domain,
+        # Jófogás market reference per model group (see market.py), for the dashboard.
+        "market": {k: s.as_dict() for k, s in market_stats(listing_records(storage, config)).items()
+                   if s.n >= MIN_SAMPLES},
+        "market_rules": {"min_samples": MIN_SAMPLES, "min_samples_hot": MIN_SAMPLES_HOT, "max_spread": MAX_SPREAD,
+                         "window_days": WINDOW_DAYS},
         "ebay_category": config.ebay.category_ids,
         "searches": [
             {"name": s.name, "keywords": list(s.keywords), "max_price_huf": s.max_price_huf,

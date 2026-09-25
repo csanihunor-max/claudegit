@@ -82,7 +82,7 @@
       <select id="f-sort">
         <option value="newest">Newest</option>
         <option value="cheapest">Cheapest</option>
-        <option value="margin">Best margin</option>
+        <option value="margin">Best deal</option>
       </select></label>
     <label>Show
       <select id="f-view">
@@ -144,11 +144,21 @@ function render(items) {
       : it.price == null ? "–" : `${it.price.toFixed(2)} ${esc(it.currency)}`;
     const priceSub = it.currency === "HUF" ? eur(it.price_eur) : huf(it.price_huf);
     const comps = it.comps_url ? `<a class="comps" href="${esc(it.comps_url)}" target="_blank" rel="noopener">eBay sold ↗</a>` : "";
-    const margin = it.margin_eur == null ? `<span class="sub">no reference</span><div>${comps}</div>`
-      : `<div class="margin ${it.margin_eur >= 0 ? "pos" : "neg"}">${it.margin_eur >= 0 ? "+" : "−"}${Math.abs(Math.round(it.margin_eur))} €</div>
-         <div class="sub">${it.margin_eur >= 0 ? "" : "−"}${Math.abs(it.margin_pct)}% · ref ${it.reference_eur} €</div><div>${comps}</div>`;
+    let margin;
+    if (it.margin_eur == null) {
+      margin = `<span class="sub">no reference</span><div>${comps}</div>`;
+    } else if (it.reference_from === "market" && it.reference_stats) {
+      // Jófogás asking-price median of the same model: shown as "% below typical", not as a resale margin.
+      const st = it.reference_stats, below = Math.round(100 * (st.median - it.price_huf) / st.median);
+      margin = `<div class="margin ${below >= 0 ? "pos" : "neg"}">${below >= 0 ? below + "% below" : -below + "% above"}</div>
+         <div class="sub" title="Median asking price of ${st.n} Jófogás ads for '${esc(it.reference_key)}' (middle half ${huf(st.p25)}–${huf(st.p75)})">typical ${huf(st.median)} · ${st.n} ads</div><div>${comps}</div>`;
+    } else {
+      margin = `<div class="margin ${it.margin_eur >= 0 ? "pos" : "neg"}">${it.margin_eur >= 0 ? "+" : "−"}${Math.abs(Math.round(it.margin_eur))} €</div>
+         <div class="sub">${it.margin_eur >= 0 ? "" : "−"}${Math.abs(it.margin_pct)}% · ${it.reference_from === "you" ? "your" : "search"} ref ${it.reference_eur} €</div><div>${comps}</div>`;
+    }
     const chips = (it.hot ? `<span class="chip hot">🔥 ≤ {{ hot_pct }}% of ref</span>` : "")
       + (it.status === "gone" ? `<span class="chip gone">gone</span>` : "")
+      + (it.parts ? `<span class="chip">🔧 parts/defect</span>` : "")
       + `<span class="chip">${esc(it.source_label)}</span>`
       + it.searches.map((s) => `<span class="chip">${esc(s)}</span>`).join("");
     const thumb = it.thumbnail_url

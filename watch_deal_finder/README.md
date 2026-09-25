@@ -104,6 +104,21 @@ searches:
   title.
 - **max_price_huf**: listings above it are still stored and visible in the
   dashboard (and alert later if the price drops under it), but don't alert.
+- **Automatic market reference**: with no reference of your own, a listing is
+  compared with the **typical Jófogás asking price of the same model**: the
+  median of every comparable ad seen (active, or gone in the last 60 days),
+  shown with the number of ads and the middle-50% range. Listings are grouped
+  by model words, reference numbers, ladies'/gold, vintage vs modern and
+  movement type, and a model is never compared with "all of the brand": a
+  Copernicus is compared with Copernicuses. Parts, defective items, lots,
+  boxes, straps and placeholder prices are left out. A reference needs 5+
+  comparable ads; 🔥 needs 8+, a price at or below 50% of the median, and a
+  group whose middle-50% range isn't wider than 70% of the median. Titles
+  that name no known model and have no vintage cue get no automatic
+  reference (their brand-only group would mix 7 000 Ft and 500 000 Ft
+  watches). This is a local asking-price comparison, so it's shown as
+  "% below typical", not as a resale margin. The logic is in
+  `watchfinder/market.py` and `watchfinder/comps.py`.
 - **model_references** (recommended) and **reference_price_eur**: a resale
   reference is set per *model*, keyed by the model words shown next to each
   listing's **eBay sold ↗** link (`raketa copernicus: 90`). A search-wide

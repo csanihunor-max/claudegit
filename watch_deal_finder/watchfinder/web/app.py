@@ -8,7 +8,8 @@ from typing import Any
 
 from flask import Flask, abort, jsonify, render_template, request
 
-from ..comps import comps_query, ebay_sold_url
+from ..comps import comps_query, ebay_sold_url, model_signature
+from ..market import GroupStats, is_hot, is_parts, resolve_reference, stats_from_storage
 from ..config import AppConfig
 from ..notify import SOURCE_LABELS
 from ..storage import USER_STATUSES, Storage
@@ -50,6 +51,7 @@ def create_app(config: AppConfig) -> Flask:
         try:
             # Bought/interested items often sell and vanish; keep showing them.
             rows = storage.dashboard_rows(include_gone=view in ("gone", "interested", "bought"))
+            market = stats_from_storage(storage, config)
         finally:
             storage.close()
 
@@ -69,14 +71,16 @@ def create_app(config: AppConfig) -> Flask:
                 continue
             if max_price is not None and (row["price_huf"] is None or row["price_huf"] > max_price):
                 continue
-            items.append(_decorate(row, config, search))
+            items.append(_decorate(row, config, search, market))
 
         if sort == "newest":
             items.sort(key=lambda i: i["first_seen"], reverse=True)
         elif sort == "cheapest":
             items.sort(key=lambda i: (i["price_huf"] is None, i["price_huf"] or 0))
         else:
-            items.sort(key=lambda i: (i["margin_eur"] is None, -(i["margin_eur"] or 0)))
+            # best deal: cheapest relative to the reference; unreferenced last
+            items.sort(key=lambda i: (i["reference_eur"] is None or not i["price_eur"],
+                                      (i["price_eur"] or 0) / (i["reference_eur"] or 1)))
         return jsonify({"items": items, "count": len(items)})
 
     @app.get("/api/searches")
@@ -137,18 +141,21 @@ def _int_arg(name: str) -> int | None:
         abort(400, f"{name} must be a whole number")
 
 
-def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | None) -> dict[str, Any]:
+def _decorate(
+    row: dict[str, Any], config: AppConfig, selected_search: str | None, market: dict[str, GroupStats]
+) -> dict[str, Any]:
     rate = config.eur_huf_rate
     keywords = [k for s in config.searches if s.name in row["searches"] for k in s.keywords]
-    model_key = comps_query(row["title"], keywords)
+    sig = model_signature(row["title"], keywords)
+    model_key = sig.query
     comps_url = ebay_sold_url(model_key, config.ebay.sold_domain, config.ebay.category_ids)
-    if model_key in config.model_references:
-        reference, reference_from = config.model_references[model_key], model_key
-    else:
-        refs = [s.reference_price_eur for s in config.searches
-                if s.name in row["searches"] and s.reference_price_eur
-                and (selected_search is None or s.name == selected_search)]
-        reference, reference_from = (max(refs) if refs else None), "search"
+    search_refs = [s.reference_price_eur for s in config.searches
+                   if s.name in row["searches"] and s.reference_price_eur
+                   and (selected_search is None or s.name == selected_search)]
+    ref = resolve_reference(sig.group_keys, config.model_references, market, rate,
+                            max(search_refs) if search_refs else None, market_ok=sig.market_ok)
+    reference = ref.eur if ref else None
+    reference_from = ref.source if ref else None
     price_huf = row["price_huf"]
     price_eur = price_huf / rate if price_huf is not None else None
     margin = reference - price_eur if reference is not None and price_eur is not None else None
@@ -167,7 +174,10 @@ def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | Non
         "reference_eur": reference,
         "margin_eur": round(margin, 1) if margin is not None else None,
         "margin_pct": round(100 * margin / reference) if margin is not None and reference else None,
-        "hot": bool(reference and price_huf is not None and price_huf <= reference * rate * config.hot_deal_ratio),
+        "hot": is_hot(price_huf, ref, rate, config.hot_deal_ratio, row["title"]),
+        "parts": is_parts(row["title"]),
+        "reference_key": ref.key if ref else None,
+        "reference_stats": ref.stats.as_dict() if ref and ref.stats else None,
         "first_seen": row["first_seen"],
         "last_seen": row["last_seen"],
         "status": row["status"],
@@ -177,5 +187,5 @@ def _decorate(row: dict[str, Any], config: AppConfig, selected_search: str | Non
         "price_history": row["price_history"],
         "comps_url": comps_url,
         "model_key": model_key,
-        "reference_from": reference_from if reference is not None else None,
+        "reference_from": reference_from,
     }

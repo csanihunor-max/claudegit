@@ -99,7 +99,7 @@
       </select></label>
       <label for="f-max">Max price (Ft)<input id="f-max" inputmode="numeric" placeholder="any"></label>
       <label for="f-sort">Sort<select id="f-sort">
-        <option value="newest">Newest</option><option value="cheapest">Cheapest</option><option value="margin">Best margin</option>
+        <option value="newest">Newest</option><option value="cheapest">Cheapest</option><option value="margin">Best deal</option>
       </select></label>
       <label for="f-view">Show<select id="f-view">
         <option value="active">Active candidates</option><option value="interested">Interested</option>
@@ -117,8 +117,7 @@ const SOURCE_LABELS = { jofogas: "Jófogás", ebay: "eBay" };
 const huf = (n) => n == null ? "–" : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " Ft";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const state = { active: [], gone: [], meta: null, db: null, loaded: false, readOnly: false, busy: new Set(),
-                refs: {},          // model words -> {eur, id}: resale references set from eBay sold prices
-                modelPrices: {},   // model words -> Jófogás asking prices of active listings
+                refs: {},          // model group -> {eur, id}: resale references set from eBay sold prices
                 editing: null,     // {id, key} of the row whose reference editor is open
                 draft: "" };
 const median = (xs) => {
@@ -142,17 +141,29 @@ function decorate(doc, selectedSearch) {
   const searchRefs = (meta.searches || [])
     .filter((s) => (doc.searches || []).includes(s.name) && s.reference_price_eur && (!selectedSearch || s.name === selectedSearch))
     .map((s) => s.reference_price_eur);
-  const key = doc.comps_query || "";
-  const modelRef = key && state.refs[key] ? state.refs[key].eur : null;
-  const ref = modelRef != null ? modelRef : searchRefs.length ? Math.max(...searchRefs) : null;
-  const refFrom = modelRef != null ? "model" : ref != null ? "search" : null;
-  const peers = (key && state.modelPrices[key]) || [];
+  // Same order as market.py: your ref for any of the model's groups, then the Jófogás
+  // market median of the most specific group with enough ads, then the search's ref.
+  const keys = (doc.group_keys && doc.group_keys.length) ? doc.group_keys : (doc.comps_query ? [doc.comps_query] : []);
+  const key = keys.length ? keys[keys.length - 1] : "";   // "set ref" applies to the model's broadest group
+  const market = meta.market || {}, rules = meta.market_rules || { min_samples: 5, max_spread: 1 };
+  let ref = null, refFrom = null, refKey = null, stats = null;
+  for (const k of keys) if (state.refs[k]) { ref = state.refs[k].eur; refFrom = "you"; refKey = k; break; }
+  if (ref == null && doc.market_ok !== false) {
+    for (const k of keys) {
+      const st = market[k];
+      if (st && st.n >= rules.min_samples) { ref = st.median / rate; refFrom = "market"; refKey = k; stats = st; break; }
+    }
+  }
+  if (ref == null && searchRefs.length) { ref = Math.max(...searchRefs); refFrom = "search"; }
+  const spreadOk = refFrom !== "market" || ((stats.p75 - stats.p25) / stats.median <= rules.max_spread
+    && stats.n >= (rules.min_samples_hot || 8));
   const eur = doc.price_huf == null ? null : doc.price_huf / rate;
   const margin = ref != null && eur != null ? ref - eur : null;
   const points = [];
   for (const h of doc.history || []) if (!points.length || points[points.length - 1] !== h.huf) points.push(h.huf);
-  return { ...doc, key, ref, refFrom, peers, eur, margin, marginPct: margin == null ? null : Math.round(100 * margin / ref),
-           hot: ref != null && doc.price_huf != null && doc.price_huf <= ref * rate * ratio, points };
+  return { ...doc, key, ref, refFrom, refKey, stats, eur, margin, marginPct: margin == null ? null : Math.round(100 * margin / ref),
+           hot: ref != null && spreadOk && !doc.parts && doc.price_huf != null && doc.price_huf >= 1000
+                && doc.price_huf <= ref * rate * ratio, points };
 }
 
 // eBay "sold items" search: what this model actually sold for. Opens in the browser.
@@ -185,7 +196,11 @@ function visible() {
   const sort = $("f-sort").value;
   if (sort === "newest") items.sort((a, b) => String(b.first_seen).localeCompare(String(a.first_seen)));
   else if (sort === "cheapest") items.sort((a, b) => (a.price_huf ?? Infinity) - (b.price_huf ?? Infinity));
-  else items.sort((a, b) => (b.margin ?? -Infinity) - (a.margin ?? -Infinity));
+  else {
+    // Best deal: cheapest relative to the reference (price ÷ reference), unreferenced last.
+    const ratio = (x) => (x.ref && x.price_huf) ? x.price_huf / (x.ref * ((state.meta && state.meta.eur_huf_rate) || 395)) : Infinity;
+    items.sort((a, b) => ratio(a) - ratio(b));
+  }
   return items;
 }
 
@@ -196,7 +211,7 @@ function refEditor(it) {
   if (!open) {
     return `<button type="button" class="linkish" data-setref="${esc(it.key)}">${own ? "edit ref" : "set ref"}</button>`;
   }
-  const count = state.active.filter((d) => d.comps_query === it.key).length;
+  const count = state.active.filter((d) => (d.group_keys || [d.comps_query]).includes(it.key)).length;
   return `<form class="refform" data-model="${esc(it.key)}">
     <span>Resale ref for “${esc(it.key)}” (${count} listing${count === 1 ? "" : "s"})</span>
     <span class="line"><input id="ref-input" inputmode="decimal" autocomplete="off" value="${esc(state.draft)}"
@@ -214,14 +229,22 @@ function rowHtml(it) {
   const comps = it.comps_query
     ? `<div><a class="comps" href="${esc(soldUrl(it.comps_query))}" target="_blank" rel="noopener"
          title="eBay sold items: ${esc(it.comps_query)}">eBay sold ↗</a></div>` : "";
-  const peers = it.peers.length >= 3
-    ? `<div class="sub" title="Median asking price of ${it.peers.length} active Jófogás ads with the same model words">Jófogás median ${huf(median(it.peers))} (${it.peers.length})</div>` : "";
-  const margin = (it.margin == null ? `<span class="sub">no reference</span>`
-    : `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
-       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ref ${it.ref} €${it.refFrom === "search" ? " (search)" : ""}</div>`)
-    + comps + peers + refEditor(it);
+  let refHtml;
+  if (it.margin == null) {
+    refHtml = `<span class="sub">${it.market_ok === false ? "model unclear: no auto ref" : "not enough comparable ads yet"}</span>`;
+  } else if (it.refFrom === "market") {
+    // Median asking price of the same model on Jófogás: "% below typical", not a resale margin.
+    const st = it.stats, below = Math.round(100 * (st.median - it.price_huf) / st.median);
+    refHtml = `<div class="margin ${below >= 0 ? "pos" : "neg"}">${below >= 0 ? below + "% below" : -below + "% above"}</div>
+      <div class="sub" title="Median asking price of ${st.n} Jófogás ads for “${esc(it.refKey)}” (middle half ${huf(st.p25)}–${huf(st.p75)})">typical ${huf(st.median)} · ${st.n} ads</div>`;
+  } else {
+    refHtml = `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
+      <div class="sub">${sign}${Math.abs(it.marginPct)}% · ${it.refFrom === "you" ? "your" : "search"} ref ${Math.round(it.ref)} €</div>`;
+  }
+  const margin = refHtml + comps + refEditor(it);
   const pct = Math.round(100 * ((state.meta && state.meta.hot_deal_ratio) || 0.5));
-  const chips = (it.hot ? `<span class="chip hot">🔥 ≤ ${pct}% of ref</span>` : "")
+  const chips = (it.hot ? `<span class="chip hot">🔥 ≤ ${pct}% of ${it.refFrom === "market" ? "typical" : "ref"}</span>` : "")
+    + (it.parts ? `<span class="chip">🔧 parts / defect</span>` : "")
     + (it.status === "gone" ? `<span class="chip gone">gone ${esc(ago(it.gone_at))}</span>` : "")
     + `<span class="chip">${esc(SOURCE_LABELS[it.source] || it.source)}</span>`
     + (it.searches || []).map((s) => `<span class="chip">${esc(s)}</span>`).join("");
@@ -248,10 +271,6 @@ function rowHtml(it) {
 }
 
 function render() {
-  state.modelPrices = {};
-  for (const d of state.active) {
-    if (d.source === "jofogas" && d.comps_query && d.price_huf) (state.modelPrices[d.comps_query] ||= []).push(d.price_huf);
-  }
   const items = visible();
   if (!state.db || !state.loaded) return;
   if (!state.active.length && !state.gone.length) {

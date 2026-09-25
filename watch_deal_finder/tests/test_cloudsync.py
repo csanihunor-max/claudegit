@@ -210,3 +210,21 @@ def test_model_references_are_read_from_the_dump(tmp_path):
     (refs / "broken.json").write_text(json.dumps({"model": "", "eur": 10}))
     (refs / "zero.json").write_text(json.dumps({"model": "seiko 5", "eur": 0}))
     assert load_model_references(tmp_path / "state") == {"raketa copernicus": 95.0}
+
+
+def test_listings_matching_a_new_blacklist_word_are_removed(tmp_path):
+    from dataclasses import replace as dc_replace
+
+    import tests.test_cloudsync as mod
+
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L("1", 1000, "Raketa Snoopy"), L("2", 1000, "Raketa 2609")]
+    cloud_pass(db, source, tmp_path, 1)
+    db.set_user_status("jofogas-2", "interested")
+    old = mod.CONFIG
+    mod.CONFIG = dc_replace(old, blacklist=old.blacklist + ("snoopy",))
+    try:
+        report, _ = cloud_pass(db, source, tmp_path, 2)
+    finally:
+        mod.CONFIG = old
+    assert report["pruned"] == 1 and db.listing_ids() == {"jofogas-2"}

@@ -240,3 +240,19 @@ def test_unchanged_data_rewrites_no_listing_documents(tmp_path):
     assert report["changed_listings"] == 0
     doc = db.listing("jofogas-5")
     assert doc["market"]["generic"] and doc["market"]["n"] >= 4 and len(doc["market"]["comps"]) <= 8
+
+
+def test_a_full_shard_sheds_its_oldest_gone_listings(tmp_path, monkeypatch):
+    import watchfinder.cloudsync as cs
+
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L(str(i), 1000 + i, f"Raketa {1000 + i}") for i in range(200)]
+    cloud_pass(db, source, tmp_path, 1, day="2026-09-01")
+    source.listings = source.listings[:100]          # the other 100 disappear
+    cloud_pass(db, source, tmp_path, 2, day="2026-09-02")
+    assert len(db.listing_ids()) == 200
+    monkeypatch.setattr(cs, "SHARD_BUDGET_BYTES", 8_000)   # pretend the shards are nearly full
+    report, _ = cloud_pass(db, source, tmp_path, 3, day="2026-09-03")
+    ids = db.listing_ids()
+    assert all(f"jofogas-{i}" in ids for i in range(100))   # active listings are kept
+    assert len(ids) < 200 and report["pruned"] > 0

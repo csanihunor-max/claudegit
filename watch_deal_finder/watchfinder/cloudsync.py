@@ -53,6 +53,8 @@ BATCH_SIZE = 50
 # An artifact database holds at most 5,000 documents, so gone listings are
 # deleted after this many days unless marked interested/bought.
 PRUNE_GONE_AFTER_DAYS = 30
+# A document may hold at most 256 KiB; above this a shard sheds its oldest gone listings.
+SHARD_BUDGET_BYTES = 220_000
 
 # Fields this module owns in a listing document (everything except user_status).
 ENGINE_FIELDS = (
@@ -287,11 +289,35 @@ def export_state(
     for did in pruned:
         dirty.add(imported[did]["_shard"])
     existing_shards = {d["_shard"] for d in imported.values()}
-    for shard in sorted(dirty):
+    over_budget: list[str] = []
+    too_big = {sh for sh, its in by_shard.items()
+               if len(json.dumps({"items": its}, ensure_ascii=False).encode()) > SHARD_BUDGET_BYTES}
+    for shard in sorted(dirty | too_big):
         items: dict[str, Any] = dict(by_shard.get(shard, {}))
         for did in pruned:
             if imported[did]["_shard"] == shard:
                 items[did] = {"__delete__": True}
+        # Stay under the 256 KiB document limit: drop the oldest gone listings first,
+        # never ones the owner marked interested/bought.
+        if len(json.dumps({"items": items}, ensure_ascii=False).encode()) > SHARD_BUDGET_BYTES:
+            gone = sorted((d for d, doc in items.items() if doc.get("status") == "gone"
+                           and (imported.get(d) or {}).get("user_status") not in keep_statuses),
+                          key=lambda d: items[d].get("gone_at") or "")
+            for did in gone:
+                if len(json.dumps({"items": items}, ensure_ascii=False).encode()) <= SHARD_BUDGET_BYTES:
+                    break
+                doc = items[did]
+                for table in ("price_history", "listing_searches", "alerts_sent", "listings"):
+                    storage.conn.execute(f"DELETE FROM {table} WHERE source = ? AND listing_id = ?",
+                                         (doc["source"], doc["listing_id"]))
+                if did in imported:
+                    items[did] = {"__delete__": True}
+                    pruned.append(did)
+                else:
+                    del items[did]
+            storage.conn.commit()
+            if len(json.dumps({"items": items}, ensure_ascii=False).encode()) > SHARD_BUDGET_BYTES:
+                over_budget.append(shard)
         # "update" merges recursively, so the page's user_status fields survive.
         add("update" if shard in existing_shards else "set", SHARDS, shard, {"items": items})
 
@@ -335,6 +361,7 @@ def export_state(
     )
     report = {
         "run_at": run_at, "new_listings": new_count, "changed_listings": changed_count, "pruned": len(pruned),
+        "shards_over_budget": over_budget,
         "alerts": len(alerts),
         "batches": batches, "alerts_file": str(alerts_md), **summary,
     }

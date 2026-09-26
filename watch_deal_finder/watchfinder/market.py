@@ -172,6 +172,13 @@ class MarketIndex:
         if ident.vague:
             ids = [i for i in self._vague.get(b, ()) if i != exclude_id and _compatible(ident, self.entries[i].ident)]
             ids.sort(key=lambda i: (self.entries[i].seen, i), reverse=True)   # deterministic: newest, then id
+            unique, seen_ads = [], set()
+            for i in ids:
+                dup = (self.entries[i].ident, self.entries[i].price)
+                if dup not in seen_ads:
+                    seen_ads.add(dup)
+                    unique.append(i)
+            ids = unique
             return ids[:MAX_COMPS * 3], None, True   # vague: a wider sample of equally vague ads
 
         tokens = _tokens(ident)
@@ -185,8 +192,14 @@ class MarketIndex:
         candidates.discard(exclude_id or "")
 
         scored: list[tuple[float, str, str]] = []
-        for cid in candidates:
+        seen_ads: set[tuple] = set()
+        for cid in sorted(candidates):
             other = self.entries[cid]
+            # the same ad posted twice (dealers relist) counts once
+            dup = (other.ident, other.price)
+            if dup in seen_ads:
+                continue
+            seen_ads.add(dup)
             if not _compatible(ident, other.ident):
                 continue
             score, shared = 0.0, ""

@@ -54,8 +54,8 @@ def test_price_classes_never_mix():
 
 
 def test_quartz_and_automatic_are_not_compared_when_both_are_known():
-    ix = index([rec("Tissot Seastar automata", p, "tissot") for p in (200_000,) * 4]
-               + [rec("Tissot Seastar quartz", p, "tissot") for p in (90_000,) * 4])
+    ix = index([rec("Tissot Seastar automata", p, "tissot") for p in (190_000, 200_000, 210_000, 220_000)]
+               + [rec("Tissot Seastar quartz", p, "tissot") for p in (85_000, 88_000, 92_000, 95_000)])
     assert ix.reference(identify("Tissot Seastar kvarc", None, ["tissot"]), 400).stats.median == 90_000
 
 
@@ -125,3 +125,15 @@ def test_hot_rules():
 ])
 def test_is_parts(title, parts):
     assert is_parts(title) is parts
+
+
+def test_the_same_ad_posted_twice_counts_once():
+    dupes = [rec("Longines Flagship", 325_000, "longines") for _ in range(5)]
+    others = [rec("Longines Flagship", p, "longines") for p in (265_000, 345_000, 300_000)]
+    ref = index(dupes + others).reference(identify("Longines Flagship", None, ["longines"]), 400)
+    assert ref.stats.n == 4
+
+
+def test_mini_is_a_ladies_size_and_diamonds_matter():
+    assert identify("Omega De Ville Mini", None, ["omega"]).lady
+    assert "diamond" in identify("Longines Dolce Vita Gyémántos", None, ["longines"]).words

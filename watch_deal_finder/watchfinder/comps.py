@@ -40,6 +40,8 @@ _WORD_ALIASES = {
     "lordmatic": "lord matic", "oroknaptaras": "perpetual calendar", "orokkaptaras": "perpetual calendar",
     "dolcevita": "dolce vita", "chrono": "chronograph", "kronograf": "chronograph", "stopperes": "chronograph",
     "wostok": "vostok", "seamater": "seamaster", "hidroconquest": "hydroconquest",
+    "diamonds": "diamond", "gyemant": "diamond", "gyemantos": "diamond", "brillians": "diamond",
+    "keramia": "ceramic", "keramiа": "ceramic",
 }
 # Generic ad vocabulary: Hungarian and English filler, condition, materials, colours,
 # sizes. Built from the words that show up across 3+ brands in real titles.
@@ -61,11 +63,11 @@ STOPWORDS = frozenset("""
     kollekcio series serie klasszikus sport sports sportos diver buvar buvaros vizallo waterproof
     elegans elegant casual dress
     tok tokos tokkal acel acelos steel stainless rozsdamentes titanium titan fem aranyozott ezustozott
-    krom kromozott bronz ceramic keramia szijjal szij szijas borszij lanccal lanc csattal csat karkoto
+    krom kromozott bronz szijjal szij szijas borszij lanccal lanc csattal csat karkoto
     black fekete blue kek white feher red piros green zold pink rozsaszin salmon silver ezust grey gray
-    szurke brown barna dark sotet light vilagos bicolor mop diamond diamonds gyemant gyemantos
+    szurke brown barna dark sotet light vilagos bicolor mop
     szamlap szamlapos dial mutato mutatok uveg plexi zafir sapphire hardlex
-    mm cm meret meretu nagy nagymeretu kicsi kis big small mini size oversize
+    mm cm meret meretu nagy nagymeretu kicsi kis big small size oversize
     datum datumos datumkijelzos napos date day
     top best szuper super extra prestige premium luxus luxury
     hasznalt used beszamitas beszamitok nos arany beepites beepitett jelzett keszletbol webaruhazi
@@ -78,7 +80,7 @@ OTHER_BRANDS = frozenset("""
     patek philippe audemars piguet jaeger lecoultre oris junghans
 """.split())
 
-_LADY = re.compile(r"\b(noi|lady|ladies|holgy|damen)\b")
+_LADY = re.compile(r"\b(noi|lady|ladies|holgy|damen|mini)\b")   # "De Ville Mini" is a ladies' size
 _GOLD = re.compile(r"\b(18k|14k|18 k|14 k|18kt|14kt|tomor arany|arany tok|arany tokos|solid gold|585|750|arany|aranyora)\b")
 # In a description "arany" is often just a colour ("arany színű"): only karat marks count there.
 _GOLD_STRICT = re.compile(r"\b(18k|14k|18 k|14 k|18kt|14kt|18 karat\w*|14 karat\w*|tomor arany|solid gold)\b")

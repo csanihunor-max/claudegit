@@ -137,3 +137,11 @@ def test_the_same_ad_posted_twice_counts_once():
 def test_mini_is_a_ladies_size_and_diamonds_matter():
     assert identify("Omega De Ville Mini", None, ["omega"]).lady
     assert "diamond" in identify("Longines Dolce Vita Gyémántos", None, ["longines"]).words
+
+
+def test_a_relisted_ad_counts_once_even_if_one_copy_is_gone():
+    recs = [rec("Omega Seamaster Black", 990_000, "omega", details="quartz"),
+            rec("Omega Seamaster Black", 990_000, "omega", status="gone", gone_at="2026-09-20T00:00:00+00:00")]
+    recs += [rec("Omega Seamaster", p, "omega") for p in (850_000, 700_000, 900_000)]
+    ref = index(recs).reference(identify("Omega Seamaster", None, ["omega"]), 400)
+    assert ref.stats.n == 4

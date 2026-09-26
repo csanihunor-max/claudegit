@@ -114,6 +114,7 @@ class _Entry:
     ident: Ident
     tokens: frozenset[str] = field(default_factory=frozenset)
     seen: str = ""
+    dup_key: tuple = ()          # (normalized title, price): the same ad relisted
 
 
 def _tokens(ident: Ident) -> frozenset[str]:
@@ -142,7 +143,8 @@ class MarketIndex:
             if is_parts(r.get("title") or ""):
                 continue
             ident = r["ident"]
-            self.entries[r["id"]] = _Entry(r["id"], int(price), ident, _tokens(ident), r.get("first_seen") or "")
+            self.entries[r["id"]] = _Entry(r["id"], int(price), ident, _tokens(ident), r.get("first_seen") or "",
+                                           (normalize(r.get("title") or ""), int(price)))
         # inverted indexes, per brand
         self._by_token: dict[tuple, set[str]] = {}
         self._by_ref: dict[tuple, set[str]] = {}
@@ -174,7 +176,7 @@ class MarketIndex:
             ids.sort(key=lambda i: (self.entries[i].seen, i), reverse=True)   # deterministic: newest, then id
             unique, seen_ads = [], set()
             for i in ids:
-                dup = (self.entries[i].ident, self.entries[i].price)
+                dup = self.entries[i].dup_key
                 if dup not in seen_ads:
                     seen_ads.add(dup)
                     unique.append(i)
@@ -196,7 +198,7 @@ class MarketIndex:
         for cid in sorted(candidates):
             other = self.entries[cid]
             # the same ad posted twice (dealers relist) counts once
-            dup = (other.ident, other.price)
+            dup = other.dup_key
             if dup in seen_ads:
                 continue
             seen_ads.add(dup)

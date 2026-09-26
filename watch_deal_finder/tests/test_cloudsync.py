@@ -140,7 +140,8 @@ def test_round_trip(tmp_path):
 
 def test_listings_spread_over_16_shard_documents(tmp_path):
     db, source = FakeArtifactDb(), Source()
-    source.listings = [L(str(i), 1000 + i) for i in range(400)]
+    # distinct watches (a reference number each), so they aren't each other's comparables
+    source.listings = [L(str(i), 1000 + i, f"Raketa {1000 + i}") for i in range(400)]
     report, _ = cloud_pass(db, source, tmp_path, 1)
     writes = [w for b in report["batches"] for w in json.loads(Path(b).read_text())]
     assert len(writes) == 18                                       # 16 shards + seen + status
@@ -148,7 +149,7 @@ def test_listings_spread_over_16_shard_documents(tmp_path):
     biggest = max(Path(w["file_path"]).stat().st_size for w in writes)
     assert biggest < 100_000                                       # far under the 256 KiB document cap
     # one price change -> only that listing's shard is rewritten
-    source.listings[7] = L("7", 500)
+    source.listings[7] = L("7", 500, "Raketa 1007")
     report, _ = cloud_pass(db, source, tmp_path, 2)
     writes = [w for b in report["batches"] for w in json.loads(Path(b).read_text())]
     assert [(w["collection"], w["doc_id"], w["op"]) for w in writes if w["collection"] == "shards"] == [
@@ -228,3 +229,14 @@ def test_listings_matching_a_new_blacklist_word_are_removed(tmp_path):
     finally:
         mod.CONFIG = old
     assert report["pruned"] == 1 and db.listing_ids() == {"jofogas-2"}
+
+
+def test_unchanged_data_rewrites_no_listing_documents(tmp_path):
+    # many near-identical listings: the comparables chosen must be the same every run
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [L(str(i), 10000 + (i % 7) * 1000, "Szovjet Raketa karóra") for i in range(60)]
+    cloud_pass(db, source, tmp_path, 1)
+    report, _ = cloud_pass(db, source, tmp_path, 2)
+    assert report["changed_listings"] == 0
+    doc = db.listing("jofogas-5")
+    assert doc["market"]["generic"] and doc["market"]["n"] >= 4 and len(doc["market"]["comps"]) <= 8

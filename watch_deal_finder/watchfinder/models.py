@@ -21,6 +21,9 @@ class Listing:
     location: str | None = None
     thumbnail_url: str | None = None
     category: str | None = None  # e.g. "Divat, ruházat > Férfi ruházat és kiegészítők > Karórák"
+    # The ad's description text, only used to identify the watch (reference numbers,
+    # calibre, model name) and never stored: it can contain the seller's phone number.
+    details: str | None = field(default=None, compare=False, repr=False)
 
     @property
     def key(self) -> tuple[str, str]:

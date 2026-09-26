@@ -8,8 +8,9 @@ from typing import Any
 
 from flask import Flask, abort, jsonify, render_template, request
 
-from ..comps import comps_query, ebay_sold_url, model_signature
-from ..market import GroupStats, is_hot, is_parts, resolve_reference, stats_from_storage
+from ..cloudsync import doc_id
+from ..comps import Ident, comps_query, ebay_sold_url, identify
+from ..market import MarketIndex, is_hot, is_parts, listing_records, resolve_reference
 from ..config import AppConfig
 from ..notify import SOURCE_LABELS
 from ..storage import USER_STATUSES, Storage
@@ -51,7 +52,9 @@ def create_app(config: AppConfig) -> Flask:
         try:
             # Bought/interested items often sell and vanish; keep showing them.
             rows = storage.dashboard_rows(include_gone=view in ("gone", "interested", "bought"))
-            market = stats_from_storage(storage, config)
+            records = listing_records(storage, config)
+            idents = {(r["source"], r["listing_id"]): r["ident"] for r in records}
+            market = MarketIndex(records)
         finally:
             storage.close()
 
@@ -71,7 +74,7 @@ def create_app(config: AppConfig) -> Flask:
                 continue
             if max_price is not None and (row["price_huf"] is None or row["price_huf"] > max_price):
                 continue
-            items.append(_decorate(row, config, search, market))
+            items.append(_decorate(row, config, search, market, idents.get((row["source"], row["listing_id"]))))
 
         if sort == "newest":
             items.sort(key=lambda i: i["first_seen"], reverse=True)
@@ -142,18 +145,20 @@ def _int_arg(name: str) -> int | None:
 
 
 def _decorate(
-    row: dict[str, Any], config: AppConfig, selected_search: str | None, market: dict[str, GroupStats]
+    row: dict[str, Any], config: AppConfig, selected_search: str | None, market: MarketIndex,
+    ident: Ident | None = None,
 ) -> dict[str, Any]:
     rate = config.eur_huf_rate
     keywords = [k for s in config.searches if s.name in row["searches"] for k in s.keywords]
-    sig = model_signature(row["title"], keywords)
-    model_key = sig.query
+    ident = ident or identify(row["title"], None, keywords)
+    model_key = ident.query
     comps_url = ebay_sold_url(model_key, config.ebay.sold_domain, config.ebay.category_ids)
     search_refs = [s.reference_price_eur for s in config.searches
                    if s.name in row["searches"] and s.reference_price_eur
                    and (selected_search is None or s.name == selected_search)]
-    ref = resolve_reference(sig.group_keys, config.model_references, market, rate,
-                            max(search_refs) if search_refs else None, market_ok=sig.market_ok)
+    ref = resolve_reference(ident, config.model_references, market, rate,
+                            max(search_refs) if search_refs else None,
+                            exclude_id=doc_id(row["source"], row["listing_id"]))
     reference = ref.eur if ref else None
     reference_from = ref.source if ref else None
     price_huf = row["price_huf"]
@@ -177,6 +182,8 @@ def _decorate(
         "hot": is_hot(price_huf, ref, rate, config.hot_deal_ratio, row["title"]),
         "parts": is_parts(row["title"]),
         "reference_key": ref.key if ref else None,
+        "reference_generic": bool(ref and ref.generic),
+        "reference_comps": list(ref.comp_ids) if ref else [],
         "reference_stats": ref.stats.as_dict() if ref and ref.stats else None,
         "first_seen": row["first_seen"],
         "last_seen": row["last_seen"],

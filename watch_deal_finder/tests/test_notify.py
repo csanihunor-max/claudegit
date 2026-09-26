@@ -159,22 +159,29 @@ def test_no_reference_means_no_margin_and_no_fire(config):
     assert "📈" not in alert.body and not alert.hot
 
 
-def test_market_reference_in_alert(config):
-    from watchfinder.market import GroupStats
+def _seiko5_index():
+    from datetime import datetime, timezone
 
+    from watchfinder.comps import identify
+    from watchfinder.market import MarketIndex
+
+    recs = [{"id": f"jofogas-{i}", "source": "jofogas", "title": "Seiko 5 automata", "price_huf": p,
+             "status": "active", "gone_at": None, "first_seen": "2026-09-20T10:00:00+00:00",
+             "ident": identify("Seiko 5 automata", None, ["seiko"])}
+            for i, p in enumerate((55000, 62000, 70000, 78000, 85000))]
+    return MarketIndex(recs, datetime(2026, 9, 26, tzinfo=timezone.utc))
+
+
+def test_market_reference_in_alert(config):
     seiko = config.search("Seiko")   # no search reference
-    stats = {"seiko 5 automatic": GroupStats(median=70000, p25=55000, p75=85000, n=12)}
     alert = format_alert(Event(EventKind.NEW, "Seiko", listing(30000, "Seiko 5 automata"), 30000), seiko, config,
-                         stats)
-    assert alert.hot   # 30 000 <= 50% of 70 000, spread 0.43
-    assert ("📊 typical Jófogás price for 'seiko 5 automatic': 70 000 Ft (12 ads, middle half 55 000 Ft–85 000 Ft)"
+                         _seiko5_index())
+    assert alert.hot   # 30 000 <= 50% of 70 000, tight group of 5
+    assert ("📊 typical Jófogás price of 5 similar ads (seiko 5): 70 000 Ft (middle half 62 000 Ft–78 000 Ft)"
             " → 57% below") in alert.body
 
 
 def test_parts_are_flagged_and_never_hot(config):
-    from watchfinder.market import GroupStats
-
-    stats = {"seiko 5 automatic": GroupStats(70000, 55000, 85000, 12)}
     alert = format_alert(Event(EventKind.NEW, "Seiko", listing(9000, "Seiko 5 automata hibás, alkatrésznek"), 9000),
-                         config.search("Seiko"), config, stats)
+                         config.search("Seiko"), config, _seiko5_index())
     assert not alert.hot and "🔧 looks like parts" in alert.body

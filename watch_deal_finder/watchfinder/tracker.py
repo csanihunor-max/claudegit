@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Mapping
 
+from .comps import identify
 from .config import AppConfig, SearchConfig
 from .models import Event, EventKind, Listing
 from .pricing import to_huf
@@ -48,6 +49,10 @@ def record_results(
                     if old_huf is not None and price_huf is not None and price_huf < old_huf:
                         events.append(Event(EventKind.PRICE_DROP, search.name, listing, price_huf, old_huf))
             storage.link_search(listing.source, listing.listing_id, search.name)
+            if listing.details is not None or row is None or not row["ident"]:
+                # identify the watch while the ad text is at hand (the text itself isn't stored)
+                storage.set_ident(listing.source, listing.listing_id,
+                                  identify(listing.title, listing.details, search.keywords).to_json())
         storage.mark_seeded(search.name, source, now)
     return events
 

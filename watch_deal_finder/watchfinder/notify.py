@@ -15,9 +15,9 @@ from typing import Callable, Mapping, Protocol
 
 import requests
 
-from .comps import ModelSignature, ebay_sold_url, model_signature
+from .comps import Ident, ebay_sold_url, identify
 from .config import AppConfig, SearchConfig
-from .market import GroupStats, Reference, is_hot, is_parts, resolve_reference
+from .market import MarketIndex, Reference, is_hot, is_parts, resolve_reference
 from .models import Event, EventKind
 from .pricing import format_eur, format_huf
 from .storage import Storage
@@ -126,14 +126,16 @@ def build_notifier(config: AppConfig) -> Notifier:
 
 
 def listing_reference(
-    title: str, search: SearchConfig, config: AppConfig, stats: Mapping[str, GroupStats] | None = None
-) -> tuple[Reference | None, ModelSignature]:
-    """The reference for one listing: the owner's per-model ref, else the Jófogás
-    market median of its model group, else the search's reference (see market.py)."""
-    sig = model_signature(title, search.keywords)
-    ref = resolve_reference(sig.group_keys, config.model_references, stats or {}, config.eur_huf_rate,
-                            search.reference_price_eur, market_ok=sig.market_ok)
-    return ref, sig
+    listing, search: SearchConfig, config: AppConfig, index: MarketIndex | None = None
+) -> tuple[Reference | None, Ident]:
+    """The reference for one listing: the owner's own ref for this watch, else the median
+    of its comparable ads, else the search's reference (see market.py)."""
+    from .cloudsync import doc_id
+
+    ident = identify(listing.title, listing.details, search.keywords)
+    ref = resolve_reference(ident, config.model_references, index, config.eur_huf_rate,
+                            search.reference_price_eur, exclude_id=doc_id(listing.source, listing.listing_id))
+    return ref, ident
 
 
 def reference_line(ref: Reference, price_huf: int, rate: float, search_name: str) -> str:
@@ -142,8 +144,9 @@ def reference_line(ref: Reference, price_huf: int, rate: float, search_name: str
         typical = s.median
         diff = round(100 * (typical - price_huf) / typical)
         where = f"{diff}% below" if diff >= 0 else f"{-diff}% above"
-        return (f"📊 typical Jófogás price for '{ref.key}': {format_huf(typical)} "
-                f"({s.n} ads, middle half {format_huf(s.p25)}–{format_huf(s.p75)}) → {where}")
+        similar = f"{s.n} similar vague ads" if ref.generic else f"{s.n} similar ads ({ref.key})"
+        return (f"📊 typical Jófogás price of {similar}: {format_huf(typical)} "
+                f"(middle half {format_huf(s.p25)}–{format_huf(s.p75)}) → {where}")
     margin = ref.eur - price_huf / rate
     pct = round(100 * abs(margin) / ref.eur)
     sign = "+" if margin >= 0 else "−"
@@ -163,12 +166,10 @@ def should_alert(event: Event, search: SearchConfig, config: AppConfig, storage:
     return not storage.alert_already_sent(listing.source, listing.listing_id, event.price_huf)
 
 
-def format_alert(
-    event: Event, search: SearchConfig, config: AppConfig, stats: Mapping[str, GroupStats] | None = None
-) -> Alert:
+def format_alert(event: Event, search: SearchConfig, config: AppConfig, index: MarketIndex | None = None) -> Alert:
     listing = event.listing
     rate = config.eur_huf_rate
-    ref, sig = listing_reference(listing.title, search, config, stats)
+    ref, ident = listing_reference(listing, search, config, index)
     hot = is_hot(event.price_huf, ref, rate, config.hot_deal_ratio, listing.title)
 
     head = "📉 Price drop" if event.kind is EventKind.PRICE_DROP else "🆕 New"
@@ -196,6 +197,6 @@ def format_alert(
 
     where = " · ".join(p for p in (listing.location, SOURCE_LABELS.get(listing.source, listing.source)) if p)
     lines.append(f"📍 {where}")
-    comps = ebay_sold_url(sig.query, config.ebay.sold_domain, config.ebay.category_ids)
+    comps = ebay_sold_url(ident.query, config.ebay.sold_domain, config.ebay.category_ids)
     return Alert(title=title, body="\n".join(lines), url=listing.url, image_url=listing.thumbnail_url, hot=hot,
                  comps_url=comps)

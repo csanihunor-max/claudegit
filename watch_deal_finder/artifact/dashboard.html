@@ -44,6 +44,9 @@
   .c-margin { display: grid; gap: 2px; justify-items: start; }
   .linkish { font: 12px var(--sans); background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer;
              text-decoration: underline; text-underline-offset: 2px; }
+  .comps-list { margin: 4px 0 0; padding-left: 16px; font-size: 12px; max-width: 320px; display: grid; gap: 2px; }
+  .comps-list a { color: var(--ink); }
+  .comps-list .num { color: var(--muted); white-space: nowrap; }
   .refform { display: grid; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--muted); }
   .refform .line { display: flex; gap: 4px; align-items: center; }
   .refform input { width: 76px; padding: 5px 6px; font: 13px var(--mono); }
@@ -117,7 +120,9 @@ const SOURCE_LABELS = { jofogas: "Jófogás", ebay: "eBay" };
 const huf = (n) => n == null ? "–" : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " Ft";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const state = { active: [], gone: [], meta: null, db: null, loaded: false, readOnly: false, busy: new Set(),
-                refs: {},          // model group -> {eur, id}: resale references set from eBay sold prices
+                refs: {},          // watch (its eBay search words) -> {eur, id}: your refs from eBay sold prices
+                byId: {},          // every listing by id, to show a reference's comparable ads
+                openComps: null,   // id of the row whose comparable ads are expanded
                 editing: null,     // {id, key} of the row whose reference editor is open
                 draft: "" };
 const median = (xs) => {
@@ -141,22 +146,16 @@ function decorate(doc, selectedSearch) {
   const searchRefs = (meta.searches || [])
     .filter((s) => (doc.searches || []).includes(s.name) && s.reference_price_eur && (!selectedSearch || s.name === selectedSearch))
     .map((s) => s.reference_price_eur);
-  // Same order as market.py: your ref for any of the model's groups, then the Jófogás
-  // market median of the most specific group with enough ads, then the search's ref.
-  const keys = (doc.group_keys && doc.group_keys.length) ? doc.group_keys : (doc.comps_query ? [doc.comps_query] : []);
-  const key = keys.length ? keys[keys.length - 1] : "";   // "set ref" applies to the model's broadest group
-  const market = meta.market || {}, rules = meta.market_rules || { min_samples: 5, max_spread: 1 };
+  // Same order as market.py: your ref for this watch, then the median of its comparable
+  // ads (worked out by the hourly run and stored on the listing), then the search's ref.
+  const key = doc.comps_query || "";
+  const rules = meta.market_rules || { min_comps_hot: 5, max_spread: 0.7 };
   let ref = null, refFrom = null, refKey = null, stats = null;
-  for (const k of keys) if (state.refs[k]) { ref = state.refs[k].eur; refFrom = "you"; refKey = k; break; }
-  if (ref == null && doc.market_ok !== false) {
-    for (const k of keys) {
-      const st = market[k];
-      if (st && st.n >= rules.min_samples) { ref = st.median / rate; refFrom = "market"; refKey = k; stats = st; break; }
-    }
-  }
-  if (ref == null && searchRefs.length) { ref = Math.max(...searchRefs); refFrom = "search"; }
+  if (key && state.refs[key]) { ref = state.refs[key].eur; refFrom = "you"; refKey = key; }
+  else if (doc.market) { ref = doc.market.median / rate; refFrom = "market"; refKey = doc.market.basis; stats = doc.market; }
+  else if (searchRefs.length) { ref = Math.max(...searchRefs); refFrom = "search"; }
   const spreadOk = refFrom !== "market" || ((stats.p75 - stats.p25) / stats.median <= rules.max_spread
-    && stats.n >= (rules.min_samples_hot || 8));
+    && stats.n >= rules.min_comps_hot);
   const eur = doc.price_huf == null ? null : doc.price_huf / rate;
   const margin = ref != null && eur != null ? ref - eur : null;
   const points = [];
@@ -204,6 +203,13 @@ function visible() {
   return items;
 }
 
+function compsList(it) {
+  const rows = (it.stats.comps || []).map((id) => state.byId[id]).filter(Boolean).map((c) =>
+    `<li><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a> <span class="num">${huf(c.price_huf)}</span>${c.status === "gone" ? " <em>(gone)</em>" : ""}</li>`);
+  const more = (it.stats.n > rows.length) ? `<li class="sub">+ ${it.stats.n - rows.length} more</li>` : "";
+  return `<ul class="comps-list">${rows.join("")}${more}</ul>`;
+}
+
 function refEditor(it) {
   if (!it.key || state.readOnly) return "";
   const own = state.refs[it.key];
@@ -211,7 +217,7 @@ function refEditor(it) {
   if (!open) {
     return `<button type="button" class="linkish" data-setref="${esc(it.key)}">${own ? "edit ref" : "set ref"}</button>`;
   }
-  const count = state.active.filter((d) => (d.group_keys || [d.comps_query]).includes(it.key)).length;
+  const count = state.active.filter((d) => d.comps_query === it.key).length;
   return `<form class="refform" data-model="${esc(it.key)}">
     <span>Resale ref for “${esc(it.key)}” (${count} listing${count === 1 ? "" : "s"})</span>
     <span class="line"><input id="ref-input" inputmode="decimal" autocomplete="off" value="${esc(state.draft)}"
@@ -231,12 +237,16 @@ function rowHtml(it) {
          title="eBay sold items: ${esc(it.comps_query)}">eBay sold ↗</a></div>` : "";
   let refHtml;
   if (it.margin == null) {
-    refHtml = `<span class="sub">${it.market_ok === false ? "model unclear: no auto ref" : "not enough comparable ads yet"}</span>`;
+    refHtml = `<span class="sub">not enough similar ads yet</span>`;
   } else if (it.refFrom === "market") {
-    // Median asking price of the same model on Jófogás: "% below typical", not a resale margin.
+    // Median asking price of this watch's most similar Jófogás ads: "% below typical", not a resale margin.
     const st = it.stats, below = Math.round(100 * (st.median - it.price_huf) / st.median);
+    const what = st.generic ? "similar vague ads" : `similar ads${it.refKey ? ` (${esc(it.refKey)})` : ""}`;
+    const open = state.openComps === it._id;
     refHtml = `<div class="margin ${below >= 0 ? "pos" : "neg"}">${below >= 0 ? below + "% below" : -below + "% above"}</div>
-      <div class="sub" title="Median asking price of ${st.n} Jófogás ads for “${esc(it.refKey)}” (middle half ${huf(st.p25)}–${huf(st.p75)})">typical ${huf(st.median)} · ${st.n} ads</div>`;
+      <div class="sub" title="Middle half ${huf(st.p25)}–${huf(st.p75)}">typical ${huf(st.median)}</div>
+      <button type="button" class="linkish" data-comps="${esc(it._id)}" aria-expanded="${open}">vs ${st.n} ${what} ${open ? "▴" : "▾"}</button>
+      ${open ? compsList(it) : ""}`;
   } else {
     refHtml = `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
       <div class="sub">${sign}${Math.abs(it.marginPct)}% · ${it.refFrom === "you" ? "your" : "search"} ref ${Math.round(it.ref)} €</div>`;
@@ -334,6 +344,8 @@ $("list").addEventListener("click", async (ev) => {
     return;
   }
   if (ev.target.closest("button[data-cancelref]")) { state.editing = null; render(); return; }
+  const compsBtn = ev.target.closest("button[data-comps]");
+  if (compsBtn) { state.openComps = state.openComps === compsBtn.dataset.comps ? null : compsBtn.dataset.comps; render(); return; }
   if (ev.target.closest("button[data-clearref]")) {
     const key = state.editing && state.editing.key;
     state.editing = null;
@@ -432,6 +444,7 @@ const wantedSearch = loadPrefs();
       const items = (d.data() || {}).items || {};
       for (const [id, item] of Object.entries(items)) if (item && item.listing_id) all.push({ ...item, _id: id, _shard: d.id });
     }
+    state.byId = Object.fromEntries(all.map((x) => [x._id, x]));
     state.active = all.filter((x) => x.status !== "gone");
     state.gone = all.filter((x) => x.status === "gone");
     state.loaded = true;

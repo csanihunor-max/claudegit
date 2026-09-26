@@ -85,6 +85,9 @@ class Storage:
         self.conn.execute("PRAGMA journal_mode=WAL")  # dashboard can read while the loop writes
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(listings)")}
+        if "ident" not in cols:  # added later: the identified watch (comps.Ident as JSON)
+            self.conn.execute("ALTER TABLE listings ADD COLUMN ident TEXT")
 
     def close(self) -> None:
         self.conn.close()
@@ -125,6 +128,11 @@ class Storage:
         self.conn.execute(
             "INSERT INTO price_history (source, listing_id, price, currency, price_huf, seen_at) VALUES (?, ?, ?, ?, ?, ?)",
             (listing.source, listing.listing_id, listing.price, listing.currency, price_huf, now),
+        )
+
+    def set_ident(self, source: str, listing_id: str, ident_json: str) -> None:
+        self.conn.execute(
+            "UPDATE listings SET ident = ? WHERE source = ? AND listing_id = ?", (ident_json, source, listing_id)
         )
 
     def link_search(self, source: str, listing_id: str, search_name: str) -> None:

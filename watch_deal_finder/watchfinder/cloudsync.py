@@ -40,7 +40,8 @@ from typing import Any
 
 from .config import AppConfig
 from .filters import blacklisted
-from .market import MAX_SPREAD, MIN_SAMPLES, MIN_SAMPLES_HOT, WINDOW_DAYS, is_parts, listing_records, market_stats
+from .market import (MAX_COMPS, MAX_SPREAD, MIN_COMPS, MIN_COMPS_HOT, WINDOW_DAYS, MarketIndex, is_parts,
+                     listing_records)
 from .notify import Alert
 from .storage import USER_STATUSES, Storage
 
@@ -57,7 +58,7 @@ PRUNE_GONE_AFTER_DAYS = 30
 ENGINE_FIELDS = (
     "source", "listing_id", "title", "price", "currency", "price_huf", "url", "location",
     "thumbnail_url", "category", "first_seen", "status", "gone_at", "searches", "history", "alerted",
-    "comps_query", "group_keys", "market_ok", "parts",
+    "comps_query", "ident", "market", "parts",
 )
 
 _BAD_ID_CHARS = re.compile(r"[^A-Za-z0-9_\-.~:@+]")
@@ -145,12 +146,13 @@ def import_state(storage: Storage, state_dir: Path) -> dict[str, dict[str, Any]]
             conn.execute(
                 """INSERT OR REPLACE INTO listings (source, listing_id, title, price, currency, price_huf, url,
                        location, thumbnail_url, category, first_seen, last_seen, last_checked, status, gone_at,
-                       user_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       user_status, ident)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (d["source"], d["listing_id"], d.get("title", ""), d.get("price"), d.get("currency", "HUF"),
                  d.get("price_huf"), d.get("url", ""), d.get("location"), d.get("thumbnail_url"),
                  d.get("category"), first_seen, last_seen.get(did) or first_seen, last_checked.get(did),
-                 d.get("status") or "active", d.get("gone_at"), user_status),
+                 d.get("status") or "active", d.get("gone_at"), user_status,
+                 json.dumps(d["ident"], ensure_ascii=False) if isinstance(d.get("ident"), dict) else None),
             )
             for point in history:
                 conn.execute(
@@ -176,7 +178,9 @@ def import_state(storage: Storage, state_dir: Path) -> dict[str, dict[str, Any]]
 
 def listing_docs(storage: Storage, config: AppConfig) -> dict[str, dict[str, Any]]:
     conn = storage.conn
-    signatures = {(r["source"], r["listing_id"]): r["signature"] for r in listing_records(storage, config)}
+    records = listing_records(storage, config)
+    idents = {(r["source"], r["listing_id"]): r["ident"] for r in records}
+    index = MarketIndex(records)
     searches: dict[tuple[str, str], list[str]] = {}
     for r in conn.execute("SELECT source, listing_id, search_name FROM listing_searches ORDER BY search_name"):
         searches.setdefault((r[0], r[1]), []).append(r[2])
@@ -197,12 +201,18 @@ def listing_docs(storage: Storage, config: AppConfig) -> dict[str, dict[str, Any
             "status": r["status"], "gone_at": r["gone_at"], "searches": searches.get(key, []),
             "history": history.get(key, []), "alerted": alerted.get(key, []),
             # model words for the "eBay sold" link, and the groups used for market references
-            "comps_query": signatures[key].query,
-            "group_keys": signatures[key].group_keys,
-            "market_ok": signatures[key].market_ok,
+            "comps_query": idents[key].query,
+            "ident": json.loads(idents[key].to_json()),
+            # the median of this listing's comparable ads, and which ads those are (see market.py)
+            "market": _market_doc(index, idents[key], config, doc_id(*key)),
             "parts": is_parts(r["title"]),
         }
     return docs
+
+
+def _market_doc(index: MarketIndex, ident, config: AppConfig, did: str) -> dict[str, Any] | None:
+    ref = index.reference(ident, config.eur_huf_rate, exclude_id=did)
+    return ref.to_doc() if ref else None
 
 
 def _engine_view(doc: dict[str, Any]) -> dict[str, Any]:
@@ -299,11 +309,8 @@ def export_state(
         "eur_huf_rate": config.eur_huf_rate,
         "hot_deal_ratio": config.hot_deal_ratio,
         "ebay_sold_domain": config.ebay.sold_domain,
-        # Jófogás market reference per model group (see market.py), for the dashboard.
-        "market": {k: s.as_dict() for k, s in market_stats(listing_records(storage, config)).items()
-                   if s.n >= MIN_SAMPLES},
-        "market_rules": {"min_samples": MIN_SAMPLES, "min_samples_hot": MIN_SAMPLES_HOT, "max_spread": MAX_SPREAD,
-                         "window_days": WINDOW_DAYS},
+        "market_rules": {"min_comps": MIN_COMPS, "min_comps_hot": MIN_COMPS_HOT, "max_comps": MAX_COMPS,
+                         "max_spread": MAX_SPREAD, "window_days": WINDOW_DAYS},
         "ebay_category": config.ebay.category_ids,
         "searches": [
             {"name": s.name, "keywords": list(s.keywords), "max_price_huf": s.max_price_huf,

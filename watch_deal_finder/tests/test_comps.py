@@ -1,46 +1,54 @@
 import pytest
 
-from watchfinder.comps import comps_query, ebay_sold_url
+from watchfinder.comps import Ident, comps_query, ebay_sold_url, identify
 
 
-@pytest.mark.parametrize("title, keywords, expected", [
-    ("Szovjet Szép Rakéta Baltika Mechanikus karóra", ["raketa"], "raketa baltica"),
-    ("Raketa Kopernikusz új beépítés", ["raketa"], "raketa copernicus"),
-    ("Szovjet Szép Rakéta TV Tokos Mechanikus karóra", ["raketa"], "raketa tv"),
-    ("Raketa Retro Férfi Karóra Orosz Szovjet Kézi Húzós 16 Köves", ["raketa"], "raketa vintage"),  # no model: vintage cue
-    ("Seiko 5 7009-3040", ["seiko"], "seiko 5 7009 3040"),
-    ("Seiko Kinetic SKA791P1", ["seiko"], "seiko kinetic ska791p1"),
-    ("Seiko Prospex Solar Limited Edition Black Series 200m", ["seiko"], "seiko prospex"),  # 200m is not a reference
-    ("Vostok Komandirskie 1975 39mm", ["vostok", "komandirskie"], "vostok komandirskie"),  # year, size dropped
-    ("Omega Seamaster De Ville automata", ["omega"], "omega seamaster de ville automatic"),
-    ("Longines nagyon ritka aranyóra", ["longines"], "longines gold"),
-    ("Omega Seamaster Lady 28mm Pink", ["omega"], "omega seamaster lady"),
-    ("Aranyozott Doxa karóra", ["doxa"], "doxa"),                               # gold-PLATED is not gold
-    ("Poljot és Rakéta karórák", ["poljot"], "poljot"),
+@pytest.mark.parametrize("title, details, brand, query", [
+    # reference / model codes: the most precise identity, from title or description
+    ("Omega Broad Arrow 3551.20.00", None, "omega", "omega 3551.20.00"),
+    ("Omega Seamaster Bond Gold", "tömör 18k arany részek quartz ref:2342.20.00", "omega", "omega 2342.20.00 gold"),
+    ("Seiko 5 automata karóra orient citizen", "Saját dobozában, Snk355K1 modell. Cal.: 7S26", "seiko",
+     "seiko snk355k1"),
+    ("Seiko V701-6K00 vintage típusú óra", None, "seiko", "seiko v701-6k00"),
+    ("Seiko 5 7009-3040", None, "seiko", "seiko 7009-3040"),
+    ("Longines Conquest L3.777.4.58.6", None, "longines", "longines l3.777.4.58.6"),
+    # model words, including names that are in no list
+    ("Vostok Anchar", None, "vostok", "vostok anchar"),
+    ("Longines Golden Classic", None, "longines", "longines golden classic"),
+    ("Szovjet Szép Rakéta Baltika Mechanikus karóra", None, "raketa", "raketa baltica"),
+    ("Szép Rakéta karóra", "Rakéta Kopernikusz 2628.H szerkezettel", "raketa", "raketa copernicus"),
+    ("Omega Seamaster Lady 28mm Pink", None, "omega", "omega seamaster lady"),
+    # vague titles
+    ("Raketa Retro Férfi Karóra Orosz Szovjet Kézi Húzós 16 Köves", None, "raketa", "raketa vintage"),
+    ("Szép állapotban Rakéta karóra", None, "raketa", "raketa"),
 ])
-def test_comps_query(title, keywords, expected):
-    assert comps_query(title, keywords) == expected
+def test_query(title, details, brand, query):
+    assert comps_query(title, [brand], details) == query
 
 
-def test_at_most_two_reference_numbers():
-    assert comps_query("Seiko 5 6309 7040 SKX007 SRPD55 turtle", ["seiko"]) == "seiko 5 turtle 6309 7040"
+def test_phone_numbers_are_never_taken_for_reference_numbers():
+    ident = identify("Raketa Big Zero", "Hívjon: 06 30 123 4567 vagy +36301234567", ["raketa"])
+    assert ident.refs == () and ident.numbers == ()
 
 
-def test_group_keys_never_widen_past_the_model():
-    from watchfinder.comps import model_signature
+def test_gold_colour_in_a_description_is_not_solid_gold():
+    assert not identify("Doxa karóra", "arany színű számlap, aranyozott tok", ["doxa"]).gold
+    assert identify("Doxa karóra", "18k tömör arany tok", ["doxa"]).gold
 
-    sig = model_signature("Raketa Kopernikusz 2628 automata", ["raketa"])
-    assert sig.group_keys == ["raketa copernicus 2628 automatic", "raketa copernicus 2628",
-                              "raketa copernicus automatic", "raketa copernicus"]
-    assert sig.market_ok
-    # identified only by a reference number: stays on it
-    assert model_signature("Seiko 7009-3040 automata", ["seiko"]).group_keys == [
-        "seiko 7009 3040 automatic", "seiko 7009 3040"]
-    # vague vintage title: its own vintage group, usable
-    vint = model_signature("Szép szovjet Pobeda mechanikus karóra", ["pobeda"])
-    assert vint.group_keys == ["pobeda vintage"] and vint.market_ok
-    # vague modern title: no automatic market reference at all
-    assert not model_signature("Vostok Anchar", ["vostok"]).market_ok
+
+def test_keyword_stuffed_brands_are_ignored():
+    assert "citizen" not in identify("Seiko 5 automata orient citizen", None, ["seiko"]).words
+
+
+def test_attributes():
+    i = identify("Vintage Omega Seamaster Cosmic Automatic (1970-es évek)", None, ["omega"])
+    assert i.vintage and i.movement == "automatic" and "cosmic" in i.words
+    assert not identify("Omega Speedmaster Moonwatch 1995", None, ["omega"]).vintage   # 1990s isn't vintage
+
+
+def test_ident_json_round_trip():
+    i = identify("Omega Seamaster Lady 2583.80", "quartz", ["omega"])
+    assert Ident.from_json(i.to_json()) == i
 
 
 def test_ebay_sold_url():
@@ -48,13 +56,3 @@ def test_ebay_sold_url():
         "https://www.ebay.de/sch/i.html?_nkw=raketa+copernicus&LH_Sold=1&LH_Complete=1&_sacat=31387")
     assert ebay_sold_url("seiko 5", "ebay.com", None) == (
         "https://www.ebay.com/sch/i.html?_nkw=seiko+5&LH_Sold=1&LH_Complete=1")
-
-
-def test_vintage_and_modern_pieces_of_a_model_are_separate_groups():
-    from watchfinder.comps import model_signature
-
-    vintage = model_signature("Vintage Omega Seamaster Cosmic Automatic (1970-es évek)", ["omega"])
-    modern = model_signature("Omega Seamaster Diver 300M", ["omega"])
-    assert vintage.group_keys[-1] == "omega seamaster cosmic vintage"
-    assert modern.group_keys[-1] == "omega seamaster"
-    assert "vintage" not in vintage.query            # the eBay search stays on the model

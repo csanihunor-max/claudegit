@@ -104,21 +104,26 @@ searches:
   title.
 - **max_price_huf**: listings above it are still stored and visible in the
   dashboard (and alert later if the price drops under it), but don't alert.
-- **Automatic market reference**: with no reference of your own, a listing is
-  compared with the **typical Jófogás asking price of the same model**: the
-  median of every comparable ad seen (active, or gone in the last 60 days),
-  shown with the number of ads and the middle-50% range. Listings are grouped
-  by model words, reference numbers, ladies'/gold, vintage vs modern and
-  movement type, and a model is never compared with "all of the brand": a
-  Copernicus is compared with Copernicuses. Parts, defective items, lots,
-  boxes, straps and placeholder prices are left out. A reference needs 5+
-  comparable ads; 🔥 needs 8+, a price at or below 50% of the median, and a
-  group whose middle-50% range isn't wider than 70% of the median. Titles
-  that name no known model and have no vintage cue get no automatic
-  reference (their brand-only group would mix 7 000 Ft and 500 000 Ft
-  watches). This is a local asking-price comparison, so it's shown as
-  "% below typical", not as a resale margin. The logic is in
-  `watchfinder/market.py` and `watchfinder/comps.py`.
+- **Automatic market reference (comparables)**: with no reference of your own,
+  a listing is compared with its **most similar Jófogás ads**, the way houses
+  are valued. The watch is identified from the title *and the ad's
+  description*: reference / model codes (`ref: 2342.20.00`, `SNK355K1`,
+  `6309-7040`, `L3.777.4.58.6`), calibres (`Cal. 7S26`), every distinctive title
+  word (anything that isn't generic ad vocabulary, so "Anchar" or "Dolce Vita"
+  work without being in any list), and ladies' / solid gold / vintage /
+  movement. Comparables must be the same brand and price class; an identical
+  reference code counts most, then calibre, then shared rare words. The
+  reference is the median price of up to 8 comparables (at least 4), and the
+  dashboard lists them ("vs 6 similar ads ▾") so you can check them. A title
+  that says nothing specific is only compared with equally vague ads, and is
+  labelled that way. Parts, defective items, lots, boxes, straps and
+  placeholder prices are never comparables. 🔥 needs 5+ comparables, a price at
+  or below 50% of their median and a tight spread. The description is read to
+  identify the watch but never stored. The "eBay sold" link uses the same
+  identity, so it searches the reference code when the ad has one. This is a
+  local asking-price comparison, shown as "% below typical", not a resale
+  margin. Code: `watchfinder/comps.py` (identity), `watchfinder/market.py`
+  (comparables).
 - **model_references** (recommended) and **reference_price_eur**: a resale
   reference is set per *model*, keyed by the model words shown next to each
   listing's **eBay sold ↗** link (`raketa copernicus: 90`). A search-wide

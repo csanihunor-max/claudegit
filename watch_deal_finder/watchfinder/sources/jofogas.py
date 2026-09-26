@@ -91,7 +91,14 @@ def _parse_ad(ad: dict[str, Any]) -> Listing | None:
         location=_location(ad),
         thumbnail_url=_thumbnail(ad),
         category=" > ".join(c.get("name", "") for c in ad.get("category_tree") or []) or None,
+        details=_text(ad.get("body")),
     )
+
+
+def _text(html: str | None) -> str | None:
+    if not html:
+        return None
+    return BeautifulSoup(html, "lxml").get_text(" ", strip=True)[:4000] or None
 
 
 def _location(ad: dict[str, Any]) -> str | None:

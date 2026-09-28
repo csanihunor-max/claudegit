@@ -169,6 +169,7 @@ def _decorate(
         "source_label": SOURCE_LABELS.get(row["source"], row["source"]),
         "listing_id": row["listing_id"],
         "title": row["title"],
+        "summary": row.get("summary"),
         "url": row["url"],
         "thumbnail_url": row["thumbnail_url"],
         "location": row["location"],

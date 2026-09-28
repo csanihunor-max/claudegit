@@ -13,6 +13,7 @@ from .models import Event, EventKind, Listing
 from .pricing import to_huf
 from .sources.base import Source
 from .storage import Storage
+from .summary import short_description
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,9 @@ def record_results(
                 # identify the watch while the ad text is at hand (the text itself isn't stored)
                 storage.set_ident(listing.source, listing.listing_id,
                                   identify(listing.title, listing.details, search.keywords).to_json())
+            if listing.details is not None:
+                storage.set_summary(listing.source, listing.listing_id,
+                                    short_description(listing.details, listing.title))
         storage.mark_seeded(search.name, source, now)
     return events
 

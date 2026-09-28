@@ -26,67 +26,102 @@
   }
   * { box-sizing: border-box; }
   body { background: var(--ground); color: var(--ink); font: 15px/1.45 var(--sans); }
-  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 40px; }
-  header { display: grid; gap: 12px; margin-bottom: 14px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 40px; }
+  header { display: grid; gap: 12px; margin-bottom: 16px; }
   .titlebar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
   h1 { font-size: 21px; font-weight: 700; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
   .status { font: 12.5px/1.4 var(--mono); color: var(--muted); }
   .status b { color: var(--ink); font-weight: 600; }
   .status .warn { color: var(--bad); }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; }
+  .quick button { font: 500 13px var(--sans); padding: 6px 12px; border-radius: 999px; cursor: pointer;
+                  border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+  .quick button .n { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); margin-left: 4px; }
+  .quick button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+  .quick button[aria-pressed="true"] .n { color: inherit; opacity: .75; }
   .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
   .filters label { display: grid; gap: 3px; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
   select, input { font: 14px var(--sans); padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px;
                   background: var(--surface); color: var(--ink); width: 100%; }
   select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .refline { font-size: 13px; color: var(--muted); min-height: 1.2em; }
-  .refline a, .comps { color: var(--accent); text-underline-offset: 2px; }
-  .comps { font: 12px var(--sans); white-space: nowrap; }
-  .c-margin { display: grid; gap: 2px; justify-items: start; }
-  .linkish { font: 12px var(--sans); background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer;
+  .refline a { color: var(--accent); text-underline-offset: 2px; }
+  .notice { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--muted); }
+  .grid > .notice { grid-column: 1 / -1; }
+
+  /* cards */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(262px, 1fr)); gap: 14px; align-items: stretch; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+          display: grid; grid-template-rows: auto 1fr auto; min-width: 0; }
+  .card.hot { border-color: var(--hot); box-shadow: 0 0 0 1px var(--hot); }
+  .card.dim { opacity: .62; }
+  .photo { position: relative; display: block; aspect-ratio: 4 / 3; background: var(--chip); overflow: hidden; }
+  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .dial { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 8px;
+          color: var(--muted); font-size: 12px; }
+  .dial i { width: 56px; height: 56px; border: 2px solid currentColor; border-radius: 50%; position: relative; opacity: .55; }
+  .dial i::before, .dial i::after { content: ""; position: absolute; left: 50%; bottom: 50%; width: 2px; background: currentColor;
+          transform-origin: bottom center; border-radius: 1px; }
+  .dial i::before { height: 18px; transform: translateX(-50%) rotate(-60deg); }
+  .dial i::after { height: 24px; transform: translateX(-50%) rotate(50deg); }
+  .badges { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .badge { font: 600 11.5px var(--sans); letter-spacing: .02em; padding: 2px 8px; border-radius: 999px;
+           background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+  .badge.hot { background: var(--hot); color: #fff; }
+  .badge.new { background: var(--accent); color: var(--accent-ink); }
+  .badge.gone { background: var(--bad); color: #fff; }
+  .deal { position: absolute; left: 8px; bottom: 8px; font: 600 13px var(--mono); padding: 3px 9px; border-radius: 7px;
+          background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / .22); }
+  .deal.pos { color: var(--good); } .deal.neg { color: var(--bad); }
+  .body { padding: 11px 13px 4px; display: grid; gap: 7px; align-content: start; min-width: 0; }
+  .title { font-weight: 600; font-size: 15px; line-height: 1.3; color: var(--ink); text-decoration: none; overflow-wrap: anywhere;
+           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .title:hover { text-decoration: underline; }
+  .desc { font-size: 13px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; margin: 0; }
+  .desc.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .pricebar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+  .price { font: 600 18px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sub { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .down { color: var(--good); } .up { color: var(--bad); }
+  .ref { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+  .ref b { color: var(--ink); font: 600 12.5px var(--mono); }
+  .ref a { color: var(--accent); text-underline-offset: 2px; white-space: nowrap; }
+  .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 6px; }
+  .meta .tag { background: var(--chip); color: var(--ink); border-radius: 999px; padding: 0 7px; }
+  .linkish { font: 12.5px var(--sans); background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer;
              text-decoration: underline; text-underline-offset: 2px; }
-  .comps-list { margin: 4px 0 0; padding-left: 16px; font-size: 12px; max-width: 320px; display: grid; gap: 2px; }
+  .comps-list { margin: 0; padding-left: 16px; font-size: 12px; display: grid; gap: 2px; }
   .comps-list a { color: var(--ink); }
-  .comps-list .num { color: var(--muted); white-space: nowrap; }
-  .refform { display: grid; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .comps-list .num { font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+  .refform { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   .refform .line { display: flex; gap: 4px; align-items: center; }
   .refform input { width: 76px; padding: 5px 6px; font: 13px var(--mono); }
   .refform button { font: 500 12px var(--sans); padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
                     background: var(--surface); color: var(--ink); cursor: pointer; }
   .refform button[type="submit"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .notice { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--muted); }
-  .list { display: grid; gap: 8px; }
-  .row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 128px 176px auto; gap: 14px; align-items: center;
-         background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
-  .row.hot { border-color: color-mix(in srgb, var(--hot) 55%, var(--line)); }
-  .row.dim { opacity: .62; }
-  .thumb { width: 92px; height: 70px; border-radius: 7px; object-fit: cover; background: var(--chip); display: block; }
-  .title { font-weight: 600; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
-  .title:hover { text-decoration: underline; }
-  .meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-  .chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--ink); }
-  .chip.hot { background: var(--hot); color: #fff; }
-  .chip.gone { background: var(--bad); color: #fff; }
-  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .price { font: 600 15px var(--mono); white-space: nowrap; }
-  .sub { font: 12px var(--mono); color: var(--muted); }
-  .down { color: var(--good); } .up { color: var(--bad); }
-  .margin { font: 600 15px var(--mono); }
-  .margin.pos { color: var(--good); } .margin.neg { color: var(--bad); }
-  .actions { display: flex; gap: 6px; justify-content: flex-end; }
-  .actions button { font: 500 13px var(--sans); padding: 7px 10px; border-radius: 8px; cursor: pointer;
-                    border: 1px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; }
-  .actions button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .actions { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); margin-top: 8px; }
+  .actions button { font: 500 13px var(--sans); padding: 10px 4px; cursor: pointer; border: 0; background: none;
+                    color: var(--muted); white-space: nowrap; }
+  .actions button + button { border-left: 1px solid var(--line); }
+  .actions button:hover { color: var(--ink); background: var(--chip); }
+  .actions button.on { background: var(--accent); color: var(--accent-ink); }
   .actions button:disabled { cursor: default; opacity: .6; }
-  @media (max-width: 760px) {
-    .c-margin { justify-items: end; }
-    .row { grid-template-columns: 80px minmax(0, 1fr); grid-template-areas: "thumb info" "price margin" "actions actions"; gap: 10px 12px; }
-    .c-thumb { grid-area: thumb; } .c-info { grid-area: info; } .c-price { grid-area: price; }
-    .c-margin { grid-area: margin; text-align: right; } .c-actions { grid-area: actions; }
-    .thumb { width: 80px; height: 62px; }
-    .actions button { flex: 1; padding: 10px 4px; }
+  .more { display: flex; justify-content: center; margin-top: 18px; }
+  .more button { font: 500 14px var(--sans); padding: 10px 18px; border-radius: 8px; border: 1px solid var(--line);
+                 background: var(--surface); color: var(--ink); cursor: pointer; }
+  @media (max-width: 560px) {
+    .grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .card { grid-template-columns: 116px minmax(0, 1fr); grid-template-rows: auto auto; }
+    .photo { aspect-ratio: auto; min-height: 116px; height: 100%; }
+    .badges { top: 6px; left: 6px; right: 6px; }
+    .badge { font-size: 10.5px; padding: 1px 6px; }
+    .deal { left: 6px; bottom: 6px; font-size: 12px; padding: 2px 6px; }
+    .body { padding: 9px 11px 6px; gap: 5px; }
+    .title { font-size: 14px; }
+    .price { font-size: 16px; }
+    .actions { grid-column: 1 / -1; margin-top: 0; }
   }
-  @media (prefers-reduced-motion: no-preference) { .actions button { transition: background .15s, color .15s; } }
+  @media (prefers-reduced-motion: no-preference) { .actions button, .quick button { transition: background .15s, color .15s; } }
 </style>
 
 <div class="wrap">
@@ -94,6 +129,12 @@
     <div class="titlebar">
       <h1>Watch Deal Board</h1>
       <div class="status" id="status">Connecting to the deal database…</div>
+    </div>
+    <div class="quick" id="quick" role="group" aria-label="Quick filters">
+      <button type="button" data-quick="" aria-pressed="true">All<span class="n" id="n-all"></span></button>
+      <button type="button" data-quick="hot" aria-pressed="false">🔥 Hot deals<span class="n" id="n-hot"></span></button>
+      <button type="button" data-quick="new" aria-pressed="false">New today<span class="n" id="n-new"></span></button>
+      <button type="button" data-quick="below" aria-pressed="false">Below typical<span class="n" id="n-below"></span></button>
     </div>
     <div class="filters">
       <label for="f-search">Search<select id="f-search"><option value="">All searches</option></select></label>
@@ -111,7 +152,8 @@
     </div>
     <div class="refline" id="refline"></div>
   </header>
-  <main class="list" id="list"><div class="notice">Loading listings…</div></main>
+  <main class="grid" id="list"><div class="notice">Loading listings…</div></main>
+  <div class="more" id="more" hidden><button type="button" id="more-btn">Show more</button></div>
 </div>
 
 <script>
@@ -124,7 +166,12 @@ const state = { active: [], gone: [], meta: null, db: null, loaded: false, readO
                 byId: {},          // every listing by id, to show a reference's comparable ads
                 openComps: null,   // id of the row whose comparable ads are expanded
                 editing: null,     // {id, key} of the row whose reference editor is open
-                draft: "" };
+                draft: "",
+                thumbs: {},        // listing id -> small photo (data: URI) from the hourly run
+                openDesc: new Set(),
+                quick: "",         // "", "hot", "new" or "below"
+                limit: 60 };       // cards rendered; "Show more" adds another page
+const PAGE = 60;
 const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b), m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
@@ -192,6 +239,11 @@ function visible() {
     .filter((d) => !source || d.source === source)
     .filter((d) => isNaN(max) || (d.price_huf != null && d.price_huf <= max))
     .map((d) => decorate(d, search));
+  state.counts = { all: items.length, hot: items.filter((d) => d.hot).length,
+                   new: items.filter(isNew).length, below: items.filter(isBelow).length };
+  if (state.quick === "hot") items = items.filter((d) => d.hot);
+  else if (state.quick === "new") items = items.filter(isNew);
+  else if (state.quick === "below") items = items.filter(isBelow);
   const sort = $("f-sort").value;
   if (sort === "newest") items.sort((a, b) => String(b.first_seen).localeCompare(String(a.first_seen)));
   else if (sort === "cheapest") items.sort((a, b) => (a.price_huf ?? Infinity) - (b.price_huf ?? Infinity));
@@ -202,6 +254,9 @@ function visible() {
   }
   return items;
 }
+
+const isNew = (d) => d.first_seen && Date.now() - new Date(d.first_seen).getTime() < 864e5;
+const isBelow = (d) => d.ref != null && d.eur != null && d.eur < d.ref;
 
 function compsList(it) {
   const rows = (it.stats.comps || []).map((id) => state.byId[id]).filter(Boolean).map((c) =>
@@ -228,55 +283,74 @@ function refEditor(it) {
   </form>`;
 }
 
-function rowHtml(it) {
+function photoHtml(it) {
+  const img = state.thumbs[it._id];
+  if (img) return `<img src="${esc(img)}" alt="" loading="lazy">`;
+  return `<span class="dial" aria-hidden="true"><i></i>${it.thumbnail_url ? "No photo yet" : "No photo"}</span>`;
+}
+
+function cardHtml(it) {
   const price = it.currency === "HUF" ? huf(it.price_huf) : it.price == null ? "–" : `${Number(it.price).toFixed(2)} ${esc(it.currency)}`;
   const priceSub = it.currency === "HUF" ? (it.eur == null ? "" : `~${Math.round(it.eur)} €`) : huf(it.price_huf);
-  const sign = it.margin != null && it.margin < 0 ? "−" : "+";
-  const comps = it.comps_query
-    ? `<div><a class="comps" href="${esc(soldUrl(it.comps_query))}" target="_blank" rel="noopener"
-         title="eBay sold items: ${esc(it.comps_query)}">eBay sold ↗</a></div>` : "";
-  let refHtml;
-  if (it.margin == null) {
-    refHtml = `<span class="sub">not enough similar ads yet</span>`;
-  } else if (it.refFrom === "market") {
-    // Median asking price of this watch's most similar Jófogás ads: "% below typical", not a resale margin.
-    const st = it.stats, below = Math.round(100 * (st.median - it.price_huf) / st.median);
-    const what = st.generic ? "similar vague ads" : `similar ads${it.refKey ? ` (${esc(it.refKey)})` : ""}`;
-    const open = state.openComps === it._id;
-    refHtml = `<div class="margin ${below >= 0 ? "pos" : "neg"}">${below >= 0 ? below + "% below" : -below + "% above"}</div>
-      <div class="sub" title="Middle half ${huf(st.p25)}–${huf(st.p75)}">typical ${huf(st.median)}</div>
-      <button type="button" class="linkish" data-comps="${esc(it._id)}" aria-expanded="${open}">vs ${st.n} ${what} ${open ? "▴" : "▾"}</button>
-      ${open ? compsList(it) : ""}`;
-  } else {
-    refHtml = `<div class="margin ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</div>
-      <div class="sub">${sign}${Math.abs(it.marginPct)}% · ${it.refFrom === "you" ? "your" : "search"} ref ${Math.round(it.ref)} €</div>`;
-  }
-  const margin = refHtml + comps + refEditor(it);
   const pct = Math.round(100 * ((state.meta && state.meta.hot_deal_ratio) || 0.5));
-  const chips = (it.hot ? `<span class="chip hot">🔥 ≤ ${pct}% of ${it.refFrom === "market" ? "typical" : "ref"}</span>` : "")
-    + (it.parts ? `<span class="chip">🔧 parts / defect</span>` : "")
-    + (it.status === "gone" ? `<span class="chip gone">gone ${esc(ago(it.gone_at))}</span>` : "")
-    + `<span class="chip">${esc(SOURCE_LABELS[it.source] || it.source)}</span>`
-    + (it.searches || []).map((s) => `<span class="chip">${esc(s)}</span>`).join("");
-  const thumb = it.thumbnail_url
-    ? `<img class="thumb" loading="lazy" referrerpolicy="no-referrer" src="${esc(it.thumbnail_url)}" alt=""
-         onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'thumb'}))">`
-    : `<div class="thumb"></div>`;
-  const buttons = [["interested", "★ Interested"], ["bought", "✓ Bought"], ["ignore", "✕ Ignore"]].map(([s, label]) =>
-    `<button type="button" data-status="${s}" class="${it.user_status === s ? "on" : ""}"
+
+  // How far the price is from the reference: the pill on the photo.
+  let deal = "", refHtml;
+  if (it.margin == null) {
+    refHtml = `<span>No reference yet: too few similar ads</span>`;
+  } else if (it.refFrom === "market") {
+    // Median asking price of this watch's most similar Jófogás ads.
+    const st = it.stats, below = Math.round(100 * (st.median - it.price_huf) / st.median);
+    deal = below >= 0 ? `<span class="deal pos">${below}% below</span>` : `<span class="deal neg">${-below}% above</span>`;
+    const open = state.openComps === it._id;
+    refHtml = `<span title="Middle half ${huf(st.p25)}–${huf(st.p75)}">typical <b>${huf(st.median)}</b></span>
+      <button type="button" class="linkish" data-comps="${esc(it._id)}" aria-expanded="${open}">vs ${st.n} ${st.generic ? "similar vague" : "similar"} ads ${open ? "▴" : "▾"}</button>`;
+  } else {
+    const sign = it.margin < 0 ? "−" : "+";
+    deal = `<span class="deal ${it.margin >= 0 ? "pos" : "neg"}">${sign}${Math.abs(Math.round(it.margin))} €</span>`;
+    refHtml = `<span>${it.refFrom === "you" ? "your" : "search"} ref <b>${Math.round(it.ref)} €</b> · ${sign}${Math.abs(it.marginPct)}%</span>`;
+  }
+  if (it.comps_query) {
+    refHtml += `<a href="${esc(soldUrl(it.comps_query))}" target="_blank" rel="noopener"
+      title="eBay sold items: ${esc(it.comps_query)}">eBay sold ↗</a>`;
+  }
+  const editor = refEditor(it);
+  if (editor && !(state.editing && state.editing.id === it._id)) refHtml += editor;
+
+  const badges = (it.hot ? `<span class="badge hot">🔥 ≤ ${pct}% of ${it.refFrom === "market" ? "typical" : "ref"}</span>` : "")
+    + (isNew(it) && it.status !== "gone" ? `<span class="badge new">New</span>` : "")
+    + (it.status === "gone" ? `<span class="badge gone">Gone ${esc(ago(it.gone_at))}</span>` : "")
+    + (it.parts ? `<span class="badge">🔧 Parts / defect</span>` : "");
+
+  let desc = "";
+  if (it.summary) {
+    const open = state.openDesc.has(it._id), long = it.summary.length > 110;
+    desc = `<p class="desc ${open ? "" : "clamp"}">${esc(it.summary)}</p>`
+      + (long ? `<button type="button" class="linkish" data-desc="${esc(it._id)}">${open ? "Less" : "More"}</button>` : "");
+  }
+  const tags = [esc(it.location || ""), esc(ago(it.first_seen)), SOURCE_LABELS[it.source] || esc(it.source)]
+    .filter(Boolean).map((t) => `<span>${t}</span>`).join("<span>·</span>")
+    + (it.searches || []).map((x) => `<span class="tag">${esc(x)}</span>`).join("");
+  const hist = historyText(it.points);
+  const buttons = [["interested", "★ Interested"], ["bought", "✓ Bought"], ["ignore", "✕ Ignore"]].map(([st, label]) =>
+    `<button type="button" data-status="${st}" class="${it.user_status === st ? "on" : ""}" aria-pressed="${it.user_status === st}"
        ${state.readOnly || state.busy.has(it._id) ? "disabled" : ""}>${label}</button>`).join("");
-  return `<article class="row ${it.hot ? "hot" : ""} ${it.user_status === "ignore" || it.status === "gone" ? "dim" : ""}"
+
+  return `<article class="card ${it.hot ? "hot" : ""} ${it.user_status === "ignore" || it.status === "gone" ? "dim" : ""}"
     data-id="${esc(it._id)}" data-shard="${esc(it._shard)}">
-    <a class="c-thumb" href="${esc(it.url)}" target="_blank" rel="noopener">${thumb}</a>
-    <div class="c-info">
+    <a class="photo" href="${esc(it.url)}" target="_blank" rel="noopener" aria-label="Open the ad">
+      ${photoHtml(it)}<span class="badges">${badges}</span>${deal}</a>
+    <div class="body">
       <a class="title" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
-      <div class="meta">${esc(it.location || "")}${it.location ? " · " : ""}first seen ${esc(ago(it.first_seen))}</div>
-      <div class="chips">${chips}</div>
+      <div class="pricebar"><span class="price">${price}</span><span class="sub">${priceSub}</span>
+        ${hist ? `<span class="sub">${hist}</span>` : ""}</div>
+      ${desc ? `<div>${desc}</div>` : ""}
+      <div class="ref">${refHtml}</div>
+      ${state.openComps === it._id && it.stats ? compsList(it) : ""}
+      ${state.editing && state.editing.id === it._id ? editor : ""}
+      <div class="meta">${tags}</div>
     </div>
-    <div class="c-price"><div class="price">${price}</div><div class="sub">${priceSub}</div>
-      <div class="sub">${historyText(it.points)}</div></div>
-    <div class="c-margin">${margin}</div>
-    <div class="c-actions actions">${buttons}</div>
+    <div class="actions">${buttons}</div>
   </article>`;
 }
 
@@ -288,12 +362,21 @@ function render() {
   } else if (!items.length) {
     $("list").innerHTML = `<div class="notice">Nothing matches these filters.</div>`;
   } else {
-    $("list").innerHTML = items.map(rowHtml).join("");
+    $("list").innerHTML = items.slice(0, state.limit).map(cardHtml).join("");
   }
+  $("more").hidden = items.length <= state.limit;
+  $("more-btn").textContent = `Show more (${items.length - state.limit} left)`;
+  renderQuick();
   renderStatus(items.length);
   renderRefline();
   const input = $("ref-input");
   if (input && document.activeElement !== input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+function renderQuick() {
+  const c = state.counts || {};
+  for (const k of ["all", "hot", "new", "below"]) $("n-" + k).textContent = c[k] == null ? "" : c[k];
+  for (const b of document.querySelectorAll("#quick button")) b.setAttribute("aria-pressed", String(b.dataset.quick === state.quick));
 }
 
 function renderStatus(shown) {
@@ -338,12 +421,19 @@ $("list").addEventListener("click", async (ev) => {
   const setBtn = ev.target.closest("button[data-setref]");
   if (setBtn) {
     const key = setBtn.dataset.setref;
-    state.editing = { id: setBtn.closest(".row").dataset.id, key };
+    state.editing = { id: setBtn.closest(".card").dataset.id, key };
     state.draft = state.refs[key] ? String(state.refs[key].eur) : "";
     render();
     return;
   }
   if (ev.target.closest("button[data-cancelref]")) { state.editing = null; render(); return; }
+  const descBtn = ev.target.closest("button[data-desc]");
+  if (descBtn) {
+    const id = descBtn.dataset.desc;
+    state.openDesc.has(id) ? state.openDesc.delete(id) : state.openDesc.add(id);
+    render();
+    return;
+  }
   const compsBtn = ev.target.closest("button[data-comps]");
   if (compsBtn) { state.openComps = state.openComps === compsBtn.dataset.comps ? null : compsBtn.dataset.comps; render(); return; }
   if (ev.target.closest("button[data-clearref]")) {
@@ -354,7 +444,7 @@ $("list").addEventListener("click", async (ev) => {
   }
   const btn = ev.target.closest("button[data-status]");
   if (!btn || !state.db || state.readOnly) return;
-  const row = btn.closest(".row"), id = row.dataset.id;
+  const row = btn.closest(".card"), id = row.dataset.id;
   const status = btn.classList.contains("on") ? null : btn.dataset.status;  // click again to clear
   state.busy.add(id); render();
   try {
@@ -391,19 +481,28 @@ async function saveRef(key, eur) {
   render();
 }
 
-["f-search", "f-source", "f-sort", "f-view"].forEach((id) => $(id).addEventListener("change", () => { savePrefs(); render(); }));
-$("f-max").addEventListener("input", () => { savePrefs(); render(); });
+const refilter = () => { state.limit = PAGE; savePrefs(); render(); };
+["f-search", "f-source", "f-sort", "f-view"].forEach((id) => $(id).addEventListener("change", refilter));
+$("f-max").addEventListener("input", refilter);
+$("quick").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-quick]");
+  if (!b) return;
+  state.quick = b.dataset.quick;
+  refilter();
+});
+$("more-btn").addEventListener("click", () => { state.limit += PAGE; render(); });
 
 function savePrefs() {
   try {
     localStorage.setItem("wdb-filters", JSON.stringify(Object.fromEntries(
-      ["f-search", "f-source", "f-max", "f-sort", "f-view"].map((id) => [id, $(id).value]))));
+      [...["f-search", "f-source", "f-max", "f-sort", "f-view"].map((id) => [id, $(id).value]), ["quick", state.quick]])));
   } catch (e) {}
 }
 function loadPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem("wdb-filters") || "{}");
     for (const [id, v] of Object.entries(p)) if ($(id) && id !== "f-search") $(id).value = v;
+    if (["", "hot", "new", "below"].includes(p.quick)) state.quick = p.quick;
     return p["f-search"] || "";
   } catch (e) { return ""; }
 }
@@ -437,6 +536,17 @@ const wantedSearch = loadPrefs();
     state.refs = refs;
     render();
   }, onErr);
+  // Small listing photos, stored by the hourly run (the page can't load them from Jófogás directly).
+  db.collection("thumbs").limit(100).onSnapshot((snap) => {
+    const thumbs = {};
+    for (const d of snap.docs) {
+      for (const [id, t] of Object.entries((d.data() || {}).items || {})) {
+        if (t && typeof t.img === "string" && t.img.startsWith("data:image/")) thumbs[id] = t.img;
+      }
+    }
+    state.thumbs = thumbs;
+    render();
+  }, () => {});
   // Listings live in 16 shard documents: {items: {id: listing}}.
   db.collection("shards").limit(100).onSnapshot((snap) => {
     const all = [];

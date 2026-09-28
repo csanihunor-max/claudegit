@@ -1,6 +1,7 @@
 """Cloud mode round trip: pass -> export -> (artifact database) -> dump -> import -> pass."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from tests.conftest import make_config
@@ -256,3 +257,17 @@ def test_a_full_shard_sheds_its_oldest_gone_listings(tmp_path, monkeypatch):
     ids = db.listing_ids()
     assert all(f"jofogas-{i}" in ids for i in range(100))   # active listings are kept
     assert len(ids) < 200 and report["pruned"] > 0
+
+
+def test_ad_text_is_stored_only_as_a_cleaned_summary(tmp_path):
+    db, source = FakeArtifactDb(), Source()
+    source.listings = [replace(L("1", 20000),
+                               details="Raketa 2609 *Szépen jár *Eredeti számlap. Hívjon: 06 30 123 4567")]
+    cloud_pass(db, source, tmp_path, 1)
+    doc = db.listing("jofogas-1")
+    assert doc["summary"] == "Szépen jár · Eredeti számlap."
+    assert "123" not in json.dumps(list(db.docs.values()), ensure_ascii=False)
+    # Survives a run where the search result has no text, and doesn't rewrite the shard.
+    source.listings = [L("1", 20000)]
+    r2, _ = cloud_pass(db, source, tmp_path, 2)
+    assert db.listing("jofogas-1")["summary"] == "Szépen jár · Eredeti számlap." and r2["changed_listings"] == 0

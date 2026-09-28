@@ -88,6 +88,8 @@ class Storage:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(listings)")}
         if "ident" not in cols:  # added later: the identified watch (comps.Ident as JSON)
             self.conn.execute("ALTER TABLE listings ADD COLUMN ident TEXT")
+        if "summary" not in cols:  # added later: a short, cleaned snippet of the ad text
+            self.conn.execute("ALTER TABLE listings ADD COLUMN summary TEXT")
 
     def close(self) -> None:
         self.conn.close()
@@ -133,6 +135,11 @@ class Storage:
     def set_ident(self, source: str, listing_id: str, ident_json: str) -> None:
         self.conn.execute(
             "UPDATE listings SET ident = ? WHERE source = ? AND listing_id = ?", (ident_json, source, listing_id)
+        )
+
+    def set_summary(self, source: str, listing_id: str, summary: str | None) -> None:
+        self.conn.execute(
+            "UPDATE listings SET summary = ? WHERE source = ? AND listing_id = ?", (summary, source, listing_id)
         )
 
     def link_search(self, source: str, listing_id: str, search_name: str) -> None:

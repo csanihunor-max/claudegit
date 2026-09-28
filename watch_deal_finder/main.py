@@ -106,6 +106,7 @@ def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
     from watchfinder.cloudsync import (CollectingNotifier, export_state, import_state, load_model_references,
                                        load_versions)
     from watchfinder.storage import utcnow
+    from watchfinder.thumbs import load_thumbs, refresh_thumbs, thumb_writes
 
     out_dir.mkdir(parents=True, exist_ok=True)
     work_db = out_dir / "work.sqlite3"
@@ -123,8 +124,15 @@ def cloud_pass(config, state_dir: Path, out_dir: Path) -> int:
         result = Runner(config, storage, build_sources(config, http), notifier).run_once()
         summary = {"kept": result.kept, "events": len(result.events), "gone": result.gone,
                    "failures": result.failures}
-        report = export_state(storage, config, imported, out_dir, run_at, summary, notifier.alerts,
-                              load_versions(state_dir))
+        # Photos come from an image server built for heavy traffic: a shorter pause, few retries.
+        photo_http = HttpClient(config.user_agent, (0.3, 1.0), max_retries=1, backoff_base=5.0, timeout=15.0)
+        old_thumbs = load_thumbs(state_dir)
+        thumbs, thumb_stats = refresh_thumbs(storage, photo_http, old_thumbs, imported)
+        versions = load_versions(state_dir)
+        (out_dir / "docs").mkdir(parents=True, exist_ok=True)
+        report = export_state(storage, config, imported, out_dir, run_at, summary, notifier.alerts, versions,
+                              thumb_writes(thumbs, old_thumbs, versions, (out_dir / "docs").resolve()),
+                              thumb_stats)
     finally:
         storage.close()
     print(json.dumps(report, ensure_ascii=False, indent=1))

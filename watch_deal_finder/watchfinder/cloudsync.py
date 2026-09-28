@@ -28,6 +28,7 @@ Artifact database layout:
     refs/<id>           {"model": "raketa copernicus", "eur": 90}: per-model resale
                         references the owner sets on the dashboard after checking
                         eBay sold prices. Read-only here (see `load_model_references`).
+    thumbs/t00..t47     small listing photos as data: URIs (see thumbs.py).
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ SHARD_BUDGET_BYTES = 220_000
 ENGINE_FIELDS = (
     "source", "listing_id", "title", "price", "currency", "price_huf", "url", "location",
     "thumbnail_url", "category", "first_seen", "status", "gone_at", "searches", "history", "alerted",
-    "comps_query", "ident", "market", "parts",
+    "comps_query", "ident", "market", "parts", "summary",
 )
 
 _BAD_ID_CHARS = re.compile(r"[^A-Za-z0-9_\-.~:@+]")
@@ -148,13 +149,14 @@ def import_state(storage: Storage, state_dir: Path) -> dict[str, dict[str, Any]]
             conn.execute(
                 """INSERT OR REPLACE INTO listings (source, listing_id, title, price, currency, price_huf, url,
                        location, thumbnail_url, category, first_seen, last_seen, last_checked, status, gone_at,
-                       user_status, ident)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       user_status, ident, summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (d["source"], d["listing_id"], d.get("title", ""), d.get("price"), d.get("currency", "HUF"),
                  d.get("price_huf"), d.get("url", ""), d.get("location"), d.get("thumbnail_url"),
                  d.get("category"), first_seen, last_seen.get(did) or first_seen, last_checked.get(did),
                  d.get("status") or "active", d.get("gone_at"), user_status,
-                 json.dumps(d["ident"], ensure_ascii=False) if isinstance(d.get("ident"), dict) else None),
+                 json.dumps(d["ident"], ensure_ascii=False) if isinstance(d.get("ident"), dict) else None,
+                 d.get("summary") if isinstance(d.get("summary"), str) else None),
             )
             for point in history:
                 conn.execute(
@@ -208,6 +210,8 @@ def listing_docs(storage: Storage, config: AppConfig) -> dict[str, dict[str, Any
             # the median of this listing's comparable ads, and which ads those are (see market.py)
             "market": _market_doc(index, idents[key], config, doc_id(*key)),
             "parts": is_parts(r["title"]),
+            # a short, cleaned snippet of the ad text (see summary.py); None until the next fetch
+            "summary": r["summary"],
         }
     return docs
 
@@ -230,11 +234,15 @@ def export_state(
     summary: dict[str, Any],
     alerts: list[Alert],
     versions: dict[str, int] | None = None,
+    thumb_writes: list[dict[str, Any]] | None = None,
+    thumb_stats: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Write changed documents and batch manifests under out_dir. Returns a small report.
 
     `versions` maps "collection/doc_id" to the version read in the dump; writes to
-    those documents are pinned with it."""
+    those documents are pinned with it. `thumb_writes` (photo shards, see thumbs.py)
+    go in batches of their own after the listing batches, so a failed photo write
+    never holds back the listings."""
     out_dir = out_dir.resolve()
     versions = versions or {}
     docs_dir = out_dir / "docs"
@@ -350,6 +358,11 @@ def export_state(
         path = out_dir / f"batch_{i // BATCH_SIZE + 1:02d}.json"
         path.write_text(json.dumps(writes[i:i + BATCH_SIZE], ensure_ascii=False, indent=1), encoding="utf-8")
         batches.append(str(path))
+    photo_writes = thumb_writes or []
+    for i in range(0, len(photo_writes), BATCH_SIZE):
+        path = out_dir / f"batch_{len(batches) + 1:02d}.json"
+        path.write_text(json.dumps(photo_writes[i:i + BATCH_SIZE], ensure_ascii=False, indent=1), encoding="utf-8")
+        batches.append(str(path))
 
     alerts_md = out_dir / "alerts.md"
     alerts_md.write_text(
@@ -362,6 +375,7 @@ def export_state(
     report = {
         "run_at": run_at, "new_listings": new_count, "changed_listings": changed_count, "pruned": len(pruned),
         "shards_over_budget": over_budget,
+        "photos": thumb_stats or {},
         "alerts": len(alerts),
         "batches": batches, "alerts_file": str(alerts_md), **summary,
     }

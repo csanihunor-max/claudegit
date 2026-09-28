@@ -145,3 +145,22 @@ def test_a_relisted_ad_counts_once_even_if_one_copy_is_gone():
     recs += [rec("Omega Seamaster", p, "omega") for p in (850_000, 700_000, 900_000)]
     ref = index(recs).reference(identify("Omega Seamaster", None, ["omega"]), 400)
     assert ref.stats.n == 4
+
+
+def test_vague_modern_titles_get_no_reference():
+    # "Doxa óra" could be a 20 000 Ft quartz or a 170 000 Ft Sub: backtest error ~100%
+    ix = index([rec("Doxa férfi karóra", p, "doxa") for p in (20_000, 60_000, 90_000, 170_000, 40_000)])
+    assert ix.reference(identify("Eladó egy Doxa óra", None, ["doxa"]), 400) is None
+
+
+def test_outlier_comparables_are_trimmed():
+    prices = (40_000, 42_000, 44_000, 46_000, 150_000)     # one mispriced / different piece
+    ix = index([rec("Raketa Big Zero", p) for p in prices])
+    ref = ix.reference(identify("Raketa Big Zero", None, ["raketa"]), 400)
+    assert ref.stats.n == 4 and ref.stats.median == 43_000
+
+
+def test_seiko_5_sports_is_not_a_vintage_seiko_5():
+    ix = index([rec("Seiko 5 7009-3040", p, "seiko") for p in (38_000, 40_000, 42_000, 44_000)]
+               + [rec("Seiko 5 Sports automata", p, "seiko") for p in (80_000, 85_000, 90_000, 95_000)])
+    assert ix.reference(identify("Seiko 5 Sports SRPD53K1", None, ["seiko"]), 400).stats.median >= 80_000

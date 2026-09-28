@@ -33,7 +33,7 @@ MODEL_PHRASES = {
     "lord matic": "lord matic", "king seiko": "king seiko", "grand seiko": "grand seiko", "perpetual calendar":
     "perpetual calendar", "tv tokos": "tv", "ds action": "ds action", "ds podium": "ds podium", "pr 516": "pr 516",
     "pr 100": "pr 100", "sub 300": "sub 300", "t race": "t race", "blue ribbon": "blue ribbon", "seiko 5": "5",
-    "sea star": "seastar",
+    "sea star": "seastar", "diver 300m": "diver 300m", "seamaster 300": "diver 300m", "5 sports": "5 sports",
 }
 _WORD_ALIASES = {
     "kopernikusz": "copernicus", "baltika": "baltica", "amfibia": "amphibia", "shturmanskie": "sturmanskie",
@@ -60,7 +60,7 @@ STOPWORDS = frozenset("""
     mechanikus mechanical automata automatic automatikus automat kvarc quartz elemes kezi huzos felhuzos
     felhuzhato kezihuzos kezzel felhuzo manual szerkezet szerkezettel szerkezetes szerkezetu movement
     koves ko jewels tipusu tipus modell model version valtozat kiadas edition limited limitalt collection
-    kollekcio series serie klasszikus sport sports sportos diver buvar buvaros vizallo waterproof
+    kollekcio series serie klasszikus sport sportos diver buvar buvaros vizallo waterproof
     elegans elegant casual dress
     tok tokos tokkal acel acelos steel stainless rozsdamentes titanium titan fem aranyozott ezustozott
     krom kromozott bronz szijjal szij szijas borszij lanccal lanc csattal csat karkoto
@@ -69,7 +69,7 @@ STOPWORDS = frozenset("""
     szamlap szamlapos dial mutato mutatok uveg plexi zafir sapphire hardlex
     mm cm meret meretu nagy nagymeretu kicsi kis big small size oversize
     datum datumos datumkijelzos napos date day
-    top best szuper super extra prestige premium luxus luxury
+    top best szuper super extra premium luxus luxury
     hasznalt used beszamitas beszamitok nos arany beepites beepitett jelzett keszletbol webaruhazi
 """.split())
 # Other watch brands: mentioned for keyword stuffing ("Seiko 5 ... orient citizen"), never the watch itself.
@@ -125,10 +125,11 @@ class Ident:
     def query(self) -> str:
         """eBay search for this watch: the reference code when there is one, else its words."""
         brand = list(self.brand)
+        words = list(self.words)
         if self.refs:
             parts = brand + [self.refs[0].lower()]
         else:
-            parts = brand + list(self.words[:3]) + list(self.numbers[:1]) + list(self.calibers[:1])
+            parts = brand + words[:3] + list(self.numbers[:1]) + list(self.calibers[:1])
             if self.vague and self.vintage:
                 parts.append("vintage")
         if self.gold:
@@ -244,12 +245,13 @@ def identify(title: str, details: str | None, keywords: Iterable[str]) -> Ident:
     # numbers that are really part of a reference code aren't separate numbers
     numbers = [n for n in numbers if not any(n in r for r in refs + cals)]
 
+
     both = f"{norm} {normalize(detail_text)}"
     movement = ("automatic" if _AUTOMATIC.search(both) else "quartz" if _QUARTZ.search(both)
                 else "manual" if _MANUAL.search(both) else None)
     return Ident(
         brand=tuple(brand), refs=tuple(refs), calibers=tuple(cals), numbers=tuple(numbers[:2]),
-        words=tuple(words[:6]), lady=bool(_LADY.search(norm)),
+        words=tuple(words[:8]), lady=bool(_LADY.search(norm)),
         gold=bool(_GOLD.search(norm) or _GOLD_STRICT.search(normalize(detail_text))),
         vintage=bool(_VINTAGE.search(norm)), movement=movement,
     )

@@ -38,11 +38,15 @@ from .filters import normalize
 
 WINDOW_DAYS = 60
 MIN_PRICE_HUF = 1_000
-MAX_COMPS = 8            # comparables used per listing
+# Tuned by backtesting on ~800 real listings (python -m tools.eval_references DUMP --grid):
+# for each ad, how close its reference comes to its own asking price.
+MAX_COMPS = 6            # comparables used per listing (8 and 12 were less accurate)
 MIN_COMPS = 4            # to show a market reference at all
 MIN_COMPS_HOT = 5        # to flag 🔥 from one
 MAX_SPREAD = 0.7         # (p75 - p25) / median of the comparables, for 🔥
-MIN_SIMILARITY = 1.0
+MIN_SIMILARITY = 0.85    # 1.0 lost coverage for no accuracy; 0.7 let in wrong models
+TRIM = 1.7               # drop comparables priced beyond 1.7x / below 1/1.7 of their median
+VAGUE_MAX = 24           # vague vintage titles: sample of up to this many equally vague ads
 
 # Parts, broken or incomplete watches, lots, accessories and conversions: not
 # comparable with a complete watch (normalized titles).
@@ -107,6 +111,35 @@ def stats_of(prices: Iterable[int]) -> GroupStats:
                       int(round(_quantile(values, 0.75))), len(values))
 
 
+@dataclass(frozen=True)
+class Params:
+    """Tuning knobs of the comparables engine (see tools/eval_references.py)."""
+    max_comps: int = MAX_COMPS
+    min_comps: int = MIN_COMPS
+    min_similarity: float = MIN_SIMILARITY
+    ref_weight: float = 3.0       # an identical reference / model code
+    cal_weight: float = 1.0       # a shared calibre
+    word_weight: float = 2.0      # x IDF-weighted overlap of distinctive words (0..1)
+    vague_max: int = VAGUE_MAX
+    estimator: str = "median"     # "median" | "weighted" (similarity-weighted median: tested, worse)
+    trim: float | None = TRIM     # drop comparables priced beyond x / trim of their median
+    ref_only: int = 0             # with >= this many same-reference comparables, use only those (0 = off)
+
+
+DEFAULT_PARAMS = Params()
+
+
+def weighted_median(values: list[int], weights: list[float]) -> float:
+    pairs = sorted(zip(values, weights))
+    total = sum(w for _, w in pairs)
+    acc = 0.0
+    for v, w in pairs:
+        acc += w
+        if acc >= total / 2:
+            return float(v)
+    return float(pairs[-1][0])
+
+
 @dataclass
 class _Entry:
     id: str
@@ -130,7 +163,9 @@ def _compatible(a: Ident, b: Ident) -> bool:
 class MarketIndex:
     """All comparable-eligible listings, indexed for finding the most similar ones."""
 
-    def __init__(self, records: Iterable[Mapping[str, Any]], now: datetime | None = None):
+    def __init__(self, records: Iterable[Mapping[str, Any]], now: datetime | None = None,
+                 params: Params = DEFAULT_PARAMS):
+        self.params = params
         now = now or datetime.now(timezone.utc)
         cutoff = (now - timedelta(days=WINDOW_DAYS)).isoformat()
         self.entries: dict[str, _Entry] = {}
@@ -168,11 +203,22 @@ class MarketIndex:
     def _weight(self, tokens: Iterable[str]) -> float:
         return sum(self._idf.get(t, math.log(1 + len(self.entries) + 1)) for t in tokens)
 
-    def comparables(self, ident: Ident, exclude_id: str | None = None) -> tuple[list[str], str | None, bool]:
-        """(comparable ids, what they share, generic?) for a listing's identity."""
+    def comparables(
+        self, ident: Ident, exclude_id: str | None = None
+    ) -> tuple[list[tuple[str, float]], str | None, bool]:
+        """([(comparable id, similarity)], what they share, generic?) for a listing's identity."""
+        P = self.params
         b = ident.brand
+        # the listing itself, and any relisted copy of the same ad, are never its own comparables
+        own = self.entries.get(exclude_id or "")
+        own_key = own.dup_key if own else None
         if ident.vague:
-            ids = [i for i in self._vague.get(b, ()) if i != exclude_id and _compatible(ident, self.entries[i].ident)]
+            # A vague title only says "a Pobeda": fine for vintage Soviet pieces, which are
+            # alike, but a vague modern "Doxa óra" could be anything (backtest: ~100% off).
+            if not ident.vintage:
+                return [], None, True
+            ids = [i for i in self._vague.get(b, ()) if i != exclude_id and self.entries[i].dup_key != own_key
+                   and _compatible(ident, self.entries[i].ident)]
             ids.sort(key=lambda i: (self.entries[i].seen, i), reverse=True)   # deterministic: newest, then id
             unique, seen_ads = [], set()
             for i in ids:
@@ -181,7 +227,7 @@ class MarketIndex:
                     seen_ads.add(dup)
                     unique.append(i)
             ids = unique
-            return ids[:MAX_COMPS * 3], None, True   # vague: a wider sample of equally vague ads
+            return [(i, 1.0) for i in ids[:P.vague_max]], None, True   # vague: a wider sample of vague ads
 
         tokens = _tokens(ident)
         candidates: set[str] = set()
@@ -199,41 +245,54 @@ class MarketIndex:
             other = self.entries[cid]
             # the same ad posted twice (dealers relist) counts once
             dup = other.dup_key
-            if dup in seen_ads:
+            if dup in seen_ads or dup == own_key:
                 continue
-            seen_ads.add(dup)
             if not _compatible(ident, other.ident):
                 continue
+            seen_ads.add(dup)
             score, shared = 0.0, ""
             same_ref = set(ident.refs) & set(other.ident.refs)
             if same_ref:
-                score += 3.0
+                score += P.ref_weight
                 shared = f"ref {sorted(same_ref)[0]}"
             if set(ident.calibers) & set(other.ident.calibers):
-                score += 1.0
+                score += P.cal_weight
             common = tokens & other.tokens
             if common:
                 union_w = self._weight(tokens | other.tokens)
-                score += 2.0 * self._weight(common) / union_w if union_w else 0.0
+                score += P.word_weight * self._weight(common) / union_w if union_w else 0.0
                 if not shared:
                     rare_first = sorted(common, key=lambda t: -self._idf.get(t, 0))[:3]
                     shared = " ".join(list(b) + [t.lstrip("#") for t in rare_first])
-            if score >= MIN_SIMILARITY:
-                scored.append((score, other.seen, cid, shared))
+            if score >= P.min_similarity:
+                scored.append((score, other.seen, cid, shared, bool(same_ref)))
         # Deterministic order (otherwise the chosen comparables, and so every listing
         # document, could change between runs): most similar, then newest, then id.
         scored.sort(key=lambda x: (x[1], x[2]), reverse=True)
         scored.sort(key=lambda x: -x[0])
-        top = scored[:MAX_COMPS]
+        if P.ref_only:
+            same = [x for x in scored if x[4]]
+            if len(same) >= P.ref_only:
+                scored = same
+        top = scored[:P.max_comps]
         basis = top[0][3] if top else None
-        return [cid for _, _, cid, _ in top], basis, False
+        return [(cid, score) for score, _, cid, _, _ in top], basis, False
 
     def reference(self, ident: Ident, eur_huf_rate: float, exclude_id: str | None = None) -> Reference | None:
-        ids, basis, generic = self.comparables(ident, exclude_id)
-        if len(ids) < MIN_COMPS:
+        P = self.params
+        comps, basis, generic = self.comparables(ident, exclude_id)
+        if P.trim and len(comps) >= P.min_comps:
+            mid = median(self.entries[i].price for i, _ in comps)
+            comps = [(i, w) for i, w in comps if mid / P.trim <= self.entries[i].price <= mid * P.trim]
+        if len(comps) < P.min_comps:
             return None
-        stats = stats_of(self.entries[i].price for i in ids)
-        return Reference(stats.median / eur_huf_rate, "market", basis, stats, tuple(ids[:MAX_COMPS]), generic)
+        prices = [self.entries[i].price for i, _ in comps]
+        stats = stats_of(prices)
+        if P.estimator == "weighted":
+            stats = GroupStats(int(round(weighted_median(prices, [w for _, w in comps]))), stats.p25, stats.p75,
+                               stats.n)
+        ids = tuple(i for i, _ in comps)
+        return Reference(stats.median / eur_huf_rate, "market", basis, stats, ids[:P.max_comps], generic)
 
 
 def resolve_reference(

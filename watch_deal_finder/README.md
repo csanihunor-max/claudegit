@@ -371,3 +371,17 @@ and implements `search(search) -> SearchResult`, and ideally
 `KNOWN_SOURCES` in `config.py`, add a label in `notify.SOURCE_LABELS`, and add
 a parser test with a saved sample page. Use the shared `HttpClient`: it
 handles the User-Agent, delays, robots.txt and backoff.
+
+### Tuning the references
+
+`python -m tools.eval_references DUMP_DIR --grid` backtests the comparables
+engine on a database dump (as the cloud run makes it): for every active ad it
+hides the ad, computes its reference from the others, and compares with the
+ad's own price. It prints coverage, typical error (overall, specific vs vague
+titles), share within 25% and the number of 🔥 flags per setting. The settings
+in `watchfinder/market.py` were chosen this way on ~800 listings (2026-09-28):
+6 comparables, similarity ≥ 0.85, comparables beyond 1.7× of their median
+dropped, vague titles referenced only when vintage. That took the typical
+error from 28.7% to about 19% (specific references ~14%), while a
+similarity-weighted median, jewel counts and reference-code families were
+tested and left out because they didn't help.

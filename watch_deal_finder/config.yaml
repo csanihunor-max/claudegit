@@ -7,6 +7,12 @@ poll_interval_minutes: 15
 # Random pause between two requests to the same site, in seconds: [min, max].
 request_delay_seconds: [3, 8]
 
+# Listings that dropped out of the search results are checked on their own ad page
+# (after this many hours unseen), at most this many per check. Sized for the cloud
+# routine's one check a day; for 15-minute checks 5 is plenty.
+gone_check_after_hours: 6
+max_gone_checks_per_pass: 30
+
 # Used for the "~EUR" figures and margins. Update it now and then.
 eur_huf_rate: 395
 
